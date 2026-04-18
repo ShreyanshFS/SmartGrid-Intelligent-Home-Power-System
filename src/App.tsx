@@ -1,33 +1,7 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  Battery, 
-  Settings, 
-  Smartphone, 
-  MessageSquare, 
-  Info, 
-  Power, 
-  Zap, 
-  Clock, 
-  ShieldAlert, 
-  Plus, 
-  Trash2, 
-  Send,
-  RefreshCcw,
-  Activity,
-  CheckCircle2,
-  AlertTriangle,
-  LayoutGrid,
-  Cpu
-} from 'lucide-react';
+import { Battery, Zap, Plus, Trash2, Send, RefreshCcw, Activity, Smartphone, Settings, Info, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
-
-// --- Types ---
 
 interface Appliance {
   id: string;
@@ -55,8 +29,6 @@ interface SystemState {
   notifications: Notification[];
 }
 
-// --- Constants ---
-
 const INITIAL_APPLIANCES: Appliance[] = [
   { id: '1', name: 'Refrigerator', watts: 150, isEssential: true, isOn: true, isAutoCut: false },
   { id: '2', name: 'Fan Main', watts: 75, isEssential: true, isOn: true, isAutoCut: false },
@@ -74,20 +46,15 @@ const INITIAL_APPLIANCES: Appliance[] = [
   { id: '14', name: 'Washing Machine', watts: 500, isEssential: false, isOn: false, isAutoCut: false },
 ];
 
-const BATTERY_TOTAL_WH = 1000;
-const SYNC_KEY = 'sg-state';
-const SYNC_INTERVAL_MS = 3000;
-const SIM_TICK_MS = 4000;
-
-// --- Components ---
+const BATTERY_TOTAL_WH = 1000, SYNC_KEY = 'sg-state', SYNC_INTERVAL_MS = 3000, SIM_TICK_MS = 4000;
 
 const BentoCard = ({ title, children, className = '', rightElement }: any) => (
-  <div className={`bento-card ${className}`}>
-    <div className="flex justify-between items-center mb-5">
+  <div className={`bento-card flex flex-col min-h-0 ${className}`}>
+    <div className="flex justify-between items-center mb-5 shrink-0">
       <h3 className="text-[0.7rem] font-bold uppercase tracking-[0.05em] text-[var(--text-dim)]">{title}</h3>
       {rightElement}
     </div>
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-0">
       {children}
     </div>
   </div>
@@ -137,7 +104,6 @@ export default function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [newAppliance, setNewAppliance] = useState({ name: '', watts: 0, isEssential: false });
 
-  // --- Derived Data ---
   const activeLoad = useMemo(() => state.appliances.filter(a => a.isOn && !a.isAutoCut).reduce((sum, a) => sum + a.watts, 0), [state.appliances]);
   const estimatedRuntime = useMemo(() => {
     if (activeLoad === 0) return 99.9;
@@ -149,7 +115,6 @@ export default function App() {
     return potentialLoad - activeLoad;
   }, [state.appliances, activeLoad]);
 
-  // --- Functions ---
   const addNotification = (message: string, type: Notification['type'] = 'info') => {
     setState(prev => ({
       ...prev,
@@ -187,7 +152,6 @@ export default function App() {
     addNotification(`${isRemote ? '[Remote] ' : ''}${app?.name} switched ${!app?.isOn ? 'ON' : 'OFF'}.`);
   };
 
-  // --- Effects ---
   useEffect(() => {
     const { batteryPercent, powerSavingThreshold, ultraThreshold, mode } = state;
     let targetMode = mode;
@@ -234,7 +198,12 @@ export default function App() {
     setChatMessages(prev => [...prev, { role: 'user', text: question }]);
     setIsTyping(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        setChatMessages(prev => [...prev, { role: 'assistant', text: "AI not configured. Set VITE_GEMINI_API_KEY in .env.local" }]);
+        return;
+      }
+      const ai = new GoogleGenAI({ apiKey });
       const result = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         config: {
@@ -247,12 +216,12 @@ export default function App() {
       });
       setChatMessages(prev => [...prev, { role: 'assistant', text: result.text || "No response." }]);
     } catch (e) {
-      setChatMessages(prev => [...prev, { role: 'assistant', text: "Error connecting to Gemini." }]);
+      setChatMessages(prev => [...prev, { role: 'assistant', text: `Error: ${(e as any).message || 'Failed to connect to Gemini.'}` }]);
     } finally { setIsTyping(false); }
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="flex flex-col h-screen">
       {/* Nav-bar */}
       <nav className="h-16 border-b border-[var(--border)] flex items-center px-6 justify-between bg-[var(--bg)] shrink-0">
         <div className="flex items-center gap-3 font-bold text-xl tracking-tight">
@@ -283,7 +252,7 @@ export default function App() {
       </nav>
 
       {/* Content Area */}
-      <main className="flex-1 overflow-hidden p-6">
+      <main className="flex-1 min-h-0 overflow-hidden p-6">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -291,7 +260,7 @@ export default function App() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
             transition={{ duration: 0.2 }}
-            className="h-full"
+            className="h-full min-h-0"
           >
             {activeTab === 'Overview' && <OverviewTab state={state} activeLoad={activeLoad} runtime={estimatedRuntime} saved={wattsSaved} toggleAppliance={toggleAppliance} />}
             {activeTab === 'Control' && <ControlTab state={state} updateState={updateState} handleModeChange={handleModeChange} addNotification={addNotification} newAppliance={newAppliance} setNewAppliance={setNewAppliance} />}
@@ -326,11 +295,11 @@ function OverviewTab({ state, activeLoad, runtime, saved, toggleAppliance }: any
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[320px_1fr_320px] grid-rows-[repeat(2,1fr)] h-full gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-[320px_1fr_320px] auto-rows-max md:auto-rows-[1fr_auto] gap-4 h-full min-h-0 content-start">
       {/* Battery Status Card */}
       <BentoCard 
         title="Battery Status" 
-        className="row-span-2"
+        className="md:row-span-2 flex flex-col min-h-0"
         rightElement={<span className="bg-blue-500/10 text-[var(--accent)] px-2 py-0.5 rounded text-[0.65rem] font-bold border border-blue-500/20">{state.mode.toUpperCase()} MODE</span>}
       >
         <div className="flex-1 flex flex-col items-center justify-center gap-6 py-4">
@@ -364,8 +333,8 @@ function OverviewTab({ state, activeLoad, runtime, saved, toggleAppliance }: any
       </BentoCard>
 
       {/* Appliances Card */}
-      <BentoCard title="Active Appliances" className="row-span-2" rightElement={<span className="text-[0.65rem] font-bold text-[var(--text-dim)]">PRIORITY: ESSENTIAL</span>}>
-        <div className="space-y-2 overflow-y-auto max-h-full pr-2 custom-scrollbar">
+      <BentoCard title="Active Appliances" className="md:row-span-2" rightElement={<span className="text-[0.65rem] font-bold text-[var(--text-dim)]">PRIORITY: ESSENTIAL</span>}>
+        <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
           {state.appliances.map((app: Appliance) => (
             <div key={app.id} className="inner-card flex items-center justify-between py-3">
               <div className="flex flex-col">
@@ -386,8 +355,8 @@ function OverviewTab({ state, activeLoad, runtime, saved, toggleAppliance }: any
       </BentoCard>
 
       {/* AI Mini Card */}
-      <BentoCard title="AI Assistant">
-        <div className="flex-1 flex flex-col gap-3">
+      <BentoCard title="AI Assistant" className="min-h-0">
+        <div className="flex flex-col gap-3">
            <div className="inner-card text-[0.75rem] leading-relaxed italic opacity-80">
              Grid battery is {state.batteryPercent.toFixed(0)}%. No critical load detected. Manual override enabled.
            </div>
@@ -401,7 +370,7 @@ function OverviewTab({ state, activeLoad, runtime, saved, toggleAppliance }: any
 
       {/* Activity Log Card */}
       <BentoCard title="Activity Log">
-         <div className="space-y-3 overflow-y-auto pr-1 text-[0.75rem] custom-scrollbar">
+         <div className="space-y-3 pr-1 text-[0.75rem]">
             {state.notifications.slice(0, 10).map((n: Notification) => (
                <div key={n.id} className="flex gap-3 border-l-2 border-[var(--accent)] pl-3 py-0.5">
                  <span className="font-mono text-[var(--text-dim)] shrink-0">{n.timestamp}</span>

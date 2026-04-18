@@ -5,6 +5,15 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
 :root {
   --bg: #09090b;
   --surface: #18181b;
