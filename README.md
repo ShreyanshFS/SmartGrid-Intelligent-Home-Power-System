@@ -1,20 +1,54 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+<img width="1200" height="475" alt="SmartGrid Banner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# SmartGrid Intelligent Home Power Control System
 
-This contains everything you need to run your app locally.
+A Vite + React app that simulates an intelligent home energy management dashboard. The app includes battery monitoring, appliance control, power-saving modes, and optional AI assistant support.
 
-View your app in AI Studio: https://ai.studio/apps/e6747b62-1383-4e79-ac10-27a31cda4119
+## Features
 
-## Run Locally
+- Real-time battery and load simulation
+- Appliance management with on/off controls
+- Smart modes for power saving and ultra conservation
+- Local state persistence in the browser
+- Optional AI assistant chat interface (Gemini-powered)
 
-**Prerequisites:**  Node.js
+## Setup
 
+**Prerequisites:** Node.js 18+ and npm
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   ```bash
+   npm install
+   ```
+2. Create a local environment file from the example:
+   ```bash
+   copy .env.example .env.local
+   ```
+3. Optionally set `GEMINI_API_KEY` in `.env.local` to enable AI assistant features.
+
+## Run the app
+
+```bash
+npm run dev
+```
+
+Open the local development URL shown by Vite.
+
+## Project structure
+
+- `src/App.tsx` – app logic, dashboard, simulation, and optional AI chat.
+- `src/main.tsx` – app entry point.
+- `index.html` – page template.
+- `vite.config.ts` – Vite configuration.
+- `.env.example` – example environment variables.
+
+## Notes
+
+- The AI assistant feature is optional. The core app works without setting `GEMINI_API_KEY`.
+- The current app uses local browser storage for state persistence.
+
+## License
+
+Use or modify this project freely for learning and development.
