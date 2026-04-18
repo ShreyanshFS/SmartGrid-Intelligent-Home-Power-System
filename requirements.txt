@@ -1,0 +1,12 @@
+# SmartGrid Project Requirements
+# This project is a React/TypeScript web application.
+# To run this, you need the following installed on your machine:
+
+1. Node.js (Version 18.0 or higher) - https://nodejs.org/
+2. npm (Node Package Manager) - Included with Node.js
+3. A modern web browser (Chrome, Firefox, Safari, or Edge)
+4. A text editor (like VS Code) - Optional but recommended
+
+# Instructions:
+# 1. Ensure Node.js is installed. Check by running `node -v` in your terminal.
+# 2. To install all code-level dependencies, run `python3 setup.py`.

@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --bg: #09090b;
+  --surface: #18181b;
+  --border: #27272a;
+  --text: #fafafa;
+  --text-dim: #a1a1aa;
+  --accent: #3b82f6;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+}
+
+@layer base {
+  body {
+    @apply bg-[var(--bg)] text-[var(--text)] antialiased selection:bg-blue-500/30;
+    font-family: var(--font-sans);
+  }
+}
+
+@layer components {
+  .bento-card {
+    @apply bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 flex flex-col shadow-sm;
+  }
+  
+  .inner-card {
+    @apply bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4;
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-[var(--border)] rounded-full;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-[#3d4149];
+  }
+}
+
+input[type="range"] {
+  @apply h-1 bg-[var(--border)] rounded-full appearance-none cursor-pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  @apply w-3 h-3 rounded-full bg-white shadow-md cursor-pointer transition-transform hover:scale-125 appearance-none;
+}
+

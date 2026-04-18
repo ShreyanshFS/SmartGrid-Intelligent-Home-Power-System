@@ -1,0 +1,6 @@
+{
+  "name": "SmartGrid — Intelligent Home Power Control System",
+  "description": "A simulation of an intelligent home inverter battery management and appliance control system with real-time battery monitoring, smart modes, and AI assistance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
