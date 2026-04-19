@@ -1,5 +1,17 @@
 # SmartGrid Intelligent Home Power Control System
 
+<div align="center">
+
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black&style=for-the-badge)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white&style=for-the-badge)
+![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white&style=for-the-badge)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white&style=for-the-badge)
+![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white&style=for-the-badge)
+![SMTP Alerts](https://img.shields.io/badge/SMTP-Email_Alerts-EA4335?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Prototype-10B981?style=for-the-badge)
+
+</div>
+
 SmartGrid is a web-based simulation dashboard for a home inverter and appliance power-management system. It helps demonstrate how a backup power controller can monitor battery level, estimate load, apply power-saving rules, record energy trends, and send alert reports when needed.
 
 The project is built as a prototype for learning, demonstration, and future hardware integration. It currently simulates the control logic in the browser and provides a server-side email alert endpoint. It does not directly switch real appliances unless connected later to hardware such as ESP32, relay modules, MQTT, or inverter telemetry.
