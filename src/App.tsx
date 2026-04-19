@@ -19,6 +19,7 @@ interface EnergySample {
 interface SystemState {
   batteryPercent: number; mode: 'Normal' | 'Power Saving' | 'Ultra';
   powerSavingThreshold: number; ultraThreshold: number;
+  batteryCapacityWh: number;
   isSimulationRunning: boolean; isChargingEnabled: boolean;
   solarInputWatts: number; gridChargingWatts: number; energyCostPerKwh: number;
   alertEmail: string; isEmailAlertsEnabled: boolean;
@@ -42,11 +43,18 @@ const INITIAL_APPLIANCES: Appliance[] = [
   { id: '14', name: 'Washing Machine', watts: 500, isEssential: false, isOn: false, isAutoCut: false },
 ];
 
-const BATTERY_TOTAL_WH = 1000, SYNC_KEY = 'sg-state', SYNC_INTERVAL_MS = 3000, SIM_TICK_MS = 4000, HISTORY_LIMIT = 36;
+const DEFAULT_BATTERY_CAPACITY_WH = 10000, POWER_SAVING_CUT_WATTS = 300, SYNC_KEY = 'sg-state', SYNC_INTERVAL_MS = 3000, SIM_TICK_MS = 4000, HISTORY_LIMIT = 36;
+
+const applyModePolicy = (appliances: Appliance[], mode: SystemState['mode']) => appliances.map(app => {
+  if (mode === 'Normal') return { ...app, isAutoCut: false };
+  if (mode === 'Power Saving') return { ...app, isAutoCut: !app.isEssential && app.watts >= POWER_SAVING_CUT_WATTS };
+  return { ...app, isAutoCut: !app.isEssential };
+});
 
 const createInitialState = (): SystemState => ({
   batteryPercent: 85, mode: 'Normal',
   powerSavingThreshold: 30, ultraThreshold: 5,
+  batteryCapacityWh: DEFAULT_BATTERY_CAPACITY_WH,
   isSimulationRunning: false, isChargingEnabled: true,
   solarInputWatts: 220, gridChargingWatts: 0, energyCostPerKwh: 8,
   alertEmail: '', isEmailAlertsEnabled: false,
@@ -64,6 +72,7 @@ const hydrateState = (saved: string | null): SystemState => {
       appliances: Array.isArray(parsed.appliances) ? parsed.appliances : INITIAL_APPLIANCES,
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       usageHistory: Array.isArray(parsed.usageHistory) ? parsed.usageHistory : [],
+      batteryCapacityWh: parsed.batteryCapacityWh ?? DEFAULT_BATTERY_CAPACITY_WH,
       isChargingEnabled: parsed.isChargingEnabled ?? true,
       solarInputWatts: parsed.solarInputWatts ?? 220,
       gridChargingWatts: parsed.gridChargingWatts ?? 0,
@@ -224,7 +233,7 @@ export default function App() {
 
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
   const [isTyping, setIsTyping] = useState(false);
-  const [newAppliance, setNewAppliance] = useState({ name: '', watts: 0, isEssential: false });
+  const [newAppliance, setNewAppliance] = useState({ name: '', watts: 0, quantity: 1, isEssential: false });
 
   const activeLoad = useMemo(() =>
     state.appliances.filter(a => a.isOn && !a.isAutoCut).reduce((s, a) => s + a.watts, 0),
@@ -236,8 +245,8 @@ export default function App() {
 
   const estimatedRuntime = useMemo(() => {
     if (netBatteryWatts <= 0) return 99.9;
-    return ((state.batteryPercent / 100) * BATTERY_TOTAL_WH) / netBatteryWatts;
-  }, [state.batteryPercent, netBatteryWatts]);
+    return ((state.batteryPercent / 100) * state.batteryCapacityWh) / netBatteryWatts;
+  }, [state.batteryPercent, state.batteryCapacityWh, netBatteryWatts]);
   const simulatedKwh = useMemo(() =>
     state.usageHistory.reduce((sum, s) => sum + (s.activeLoad * SIM_TICK_MS / 3_600_000 / 1000), 0),
     [state.usageHistory]);
@@ -261,9 +270,7 @@ export default function App() {
   const handleModeChange = (newMode: SystemState['mode']) => {
     updateState(prev => ({
       ...prev, mode: newMode,
-      appliances: prev.appliances.map(a =>
-        newMode !== 'Normal' ? { ...a, isAutoCut: !a.isEssential } : { ...a, isAutoCut: false }
-      )
+      appliances: applyModePolicy(prev.appliances, newMode)
     }));
     addNotification(`Mode set to ${newMode}.`);
   };
@@ -318,7 +325,7 @@ export default function App() {
     if (target !== mode) {
       updateState(prev => ({
         ...prev, mode: target,
-        appliances: prev.appliances.map(a => ({ ...a, isAutoCut: target !== 'Normal' && !a.isEssential }))
+        appliances: applyModePolicy(prev.appliances, target)
       }));
       addNotification(`Auto-switched to ${target} mode.`, 'warning');
     }
@@ -331,7 +338,7 @@ export default function App() {
       updateState(prev => {
         const inputWatts = prev.isChargingEnabled ? prev.solarInputWatts + prev.gridChargingWatts : 0;
         const netWatts = activeLoad - inputWatts;
-        const delta = (netWatts / BATTERY_TOTAL_WH) * 100 * (SIM_TICK_MS / 3_600_000);
+        const delta = (netWatts / prev.batteryCapacityWh) * 100 * (SIM_TICK_MS / 3_600_000);
         const nextBattery = Math.min(100, Math.max(0, prev.batteryPercent - delta));
         return {
           ...prev,
@@ -457,8 +464,11 @@ export default function App() {
 function OverviewTab({ state, activeLoad, runtime, toggleAppliance, handleModeChange, updateState }: any) {
   const battColor = state.batteryPercent > 30 ? 'text-[var(--success)]' : state.batteryPercent > 10 ? 'text-[var(--warning)]' : 'text-[var(--danger)]';
   const wattsSaved = state.appliances.filter((a: Appliance) => !a.isOn).reduce((s: number, a: Appliance) => s + a.watts, 0);
+  const chargeInput = state.isChargingEnabled ? state.solarInputWatts + state.gridChargingWatts : 0;
+  const netLoad = activeLoad - chargeInput;
   const runtimeH = Math.floor(runtime);
   const runtimeM = Math.round((runtime % 1) * 60);
+  const runtimeLabel = netLoad <= 0 ? 'Charging' : `${runtimeH}h ${runtimeM}m`;
 
   return (
     <div className="flex h-full gap-3 p-4 overflow-hidden">
@@ -475,8 +485,10 @@ function OverviewTab({ state, activeLoad, runtime, toggleAppliance, handleModeCh
               <ModeSwitcher mode={state.mode} onChange={handleModeChange} />
             </div>
             <div className="w-full grid grid-cols-2 gap-2">
-              <Chip label="Runtime" value={`${runtimeH}h ${runtimeM}m`} />
+              <Chip label="Runtime" value={runtimeLabel} />
               <Chip label="Load" value={`${activeLoad}W`} accent="text-[var(--accent)]" />
+              <Chip label="Charge In" value={`${chargeInput}W`} accent="text-[var(--warning)]" />
+              <Chip label="Capacity" value={`${(state.batteryCapacityWh / 1000).toFixed(1)} kWh`} />
               <Chip label="Saved" value={`${wattsSaved}W`} accent="text-[var(--success)]" />
               <Chip label="Active" value={`${state.appliances.filter((a: Appliance) => a.isOn && !a.isAutoCut).length}`} />
             </div>
@@ -598,11 +610,22 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
   const registerDevice = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAppliance.name || newAppliance.watts <= 0) return;
-    updateState((p: any) => ({
-      ...p, appliances: [...p.appliances, { id: Date.now().toString(), ...newAppliance, isOn: false, isAutoCut: false }]
+    const quantity = Math.max(1, Math.min(50, Math.floor(Number(newAppliance.quantity) || 1)));
+    const baseName = newAppliance.name.trim();
+    const newDevices = Array.from({ length: quantity }, (_, index) => ({
+      id: `${Date.now()}-${index}`,
+      name: quantity === 1 ? baseName : `${baseName} ${index + 1}`,
+      watts: newAppliance.watts,
+      isEssential: newAppliance.isEssential,
+      isOn: false,
+      isAutoCut: false
     }));
-    addNotification(`Registered: ${newAppliance.name}`);
-    setNewAppliance({ name: '', watts: 0, isEssential: false });
+    updateState((p: any) => ({
+      ...p,
+      appliances: applyModePolicy([...p.appliances, ...newDevices], p.mode)
+    }));
+    addNotification(`Registered ${quantity} x ${baseName}.`);
+    setNewAppliance({ name: '', watts: 0, quantity: 1, isEssential: false });
   };
 
   return (
@@ -635,6 +658,26 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
             </div>
 
             <div>
+              <div className="flex justify-between text-xs font-mono mb-2">
+                <span className="text-[var(--text-dim)]">BATTERY CAPACITY</span>
+                <span className="text-[var(--success)]">{(state.batteryCapacityWh / 1000).toFixed(1)} kWh</span>
+              </div>
+              <input type="range" min="1000" max="20000" step="500" className="w-full" value={state.batteryCapacityWh}
+                onChange={e => updateState((p: SystemState) => ({ ...p, batteryCapacityWh: Number(e.target.value) }))} />
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                {[5000, 10000, 15000].map(capacity => (
+                  <button key={capacity} type="button"
+                    onClick={() => updateState((p: SystemState) => ({ ...p, batteryCapacityWh: capacity }))}
+                    className={`rounded-lg border px-2 py-1.5 text-[0.65rem] font-bold ${
+                      state.batteryCapacityWh === capacity ? 'bg-[var(--accent)] border-[var(--accent)] text-white' : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-dim)]'
+                    }`}>
+                    {capacity / 1000} kWh
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
               <div className="text-[0.65rem] text-[var(--text-dim)] uppercase tracking-wider mb-2 font-semibold">System Mode</div>
               <ModeSwitcher mode={state.mode} onChange={handleModeChange} />
             </div>
@@ -657,6 +700,9 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
                   onChange={e => updateState((p: any) => ({ ...p, [s.key]: Number(e.target.value) }))} />
               </div>
             ))}
+            <div className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-3 text-[0.7rem] text-[var(--text-dim)] leading-relaxed">
+              Power Saving cuts only high-load non-essential devices ({POWER_SAVING_CUT_WATTS}W+). Ultra cuts every non-essential device, so Ultra always leaves less load and cuts more appliances.
+            </div>
           </div>
         </SideCard>
 
@@ -744,13 +790,13 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
         {/* Device Registration */}
         <SideCard title="Device Registration" className="xl:col-span-2">
           <div className="p-5">
-            <form onSubmit={registerDevice} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <form onSubmit={registerDevice} className="grid grid-cols-1 sm:grid-cols-5 gap-3">
               <div className="sm:col-span-1 flex flex-col gap-1.5">
                 <label className="text-[0.6rem] text-[var(--text-dim)] uppercase font-semibold">Name</label>
                 <input type="text" value={newAppliance.name}
                   onChange={e => setNewAppliance({ ...newAppliance, name: e.target.value })}
                   className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full"
-                  placeholder="e.g. Microwave" />
+                  placeholder="e.g. Bedroom Fan" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.6rem] text-[var(--text-dim)] uppercase font-semibold">Load (W)</label>
@@ -758,6 +804,13 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
                   onChange={e => setNewAppliance({ ...newAppliance, watts: Number(e.target.value) })}
                   className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full"
                   placeholder="e.g. 500" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[0.6rem] text-[var(--text-dim)] uppercase font-semibold">Quantity</label>
+                <input type="number" min="1" max="50" value={newAppliance.quantity || ''}
+                  onChange={e => setNewAppliance({ ...newAppliance, quantity: Number(e.target.value) })}
+                  className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full"
+                  placeholder="e.g. 3" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.6rem] text-[var(--text-dim)] uppercase font-semibold">Priority</label>

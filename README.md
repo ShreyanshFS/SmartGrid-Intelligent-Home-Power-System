@@ -42,6 +42,7 @@ The system calculates the active load, estimates runtime, tracks battery changes
 ### Power Monitoring
 
 - Battery percentage display with arc gauge
+- Configurable battery capacity for 5 kWh, 10 kWh, 15 kWh, and custom values
 - Active load calculation from currently running appliances
 - Estimated runtime based on battery capacity and net load
 - Charging input simulation from solar and grid sources
@@ -54,6 +55,7 @@ The system calculates the active load, estimates runtime, tracks battery changes
 - Essential and non-essential appliance classification
 - Auto-cut behavior for non-essential appliances in saving modes
 - Device registration form for adding new appliances
+- Quantity-based appliance registration for adding multiple similar devices at once
 
 ### Smart Modes
 
@@ -61,6 +63,7 @@ The system calculates the active load, estimates runtime, tracks battery changes
 - Power Saving mode for low battery conditions
 - Ultra mode for critical battery conditions
 - Adjustable battery thresholds for automatic mode switching
+- Different cutoff behavior for Power Saving and Ultra modes
 
 ### Analytics and Reports
 
@@ -103,14 +106,15 @@ The system calculates the active load, estimates runtime, tracks battery changes
 
 ## How the Simulation Works
 
-1. The dashboard starts with a default set of appliances and battery percentage.
+1. The dashboard starts with a default set of appliances, battery percentage, and battery capacity.
 2. Active load is calculated from appliances that are turned on and not auto-cut.
 3. Charging input is calculated from solar and grid charging sliders.
 4. Net battery flow is calculated as active load minus charging input.
 5. When the simulation is running, battery percentage updates every few seconds.
 6. A history sample is recorded for battery percentage, load, charging input, and mode.
 7. If battery level crosses a configured threshold, the app switches mode automatically.
-8. In Power Saving or Ultra mode, non-essential appliances are marked as cut.
+8. In Power Saving mode, only high-load non-essential appliances are cut.
+9. In Ultra mode, all non-essential appliances are cut.
 
 ## Installation
 
