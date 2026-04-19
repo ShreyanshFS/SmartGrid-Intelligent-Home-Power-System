@@ -7,19 +7,21 @@
 
 html, body, #root {
   height: 100%;
+  overflow: hidden;
 }
 
 body {
   margin: 0;
-  overflow: hidden;
 }
 
 :root {
   --bg: #09090b;
-  --surface: #18181b;
+  --surface: #111113;
+  --surface2: #1c1c1f;
   --border: #27272a;
+  --border-hover: #3f3f46;
   --text: #fafafa;
-  --text-dim: #a1a1aa;
+  --text-dim: #71717a;
   --accent: #3b82f6;
   --success: #10b981;
   --warning: #f59e0b;
@@ -28,41 +30,70 @@ body {
 
 @layer base {
   body {
-    @apply bg-[var(--bg)] text-[var(--text)] antialiased selection:bg-blue-500/30;
+    @apply bg-[var(--bg)] text-[var(--text)] antialiased;
     font-family: var(--font-sans);
   }
 }
 
-@layer components {
-  .bento-card {
-    @apply bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 flex flex-col shadow-sm;
-  }
-  
-  .inner-card {
-    @apply bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4;
-  }
+/* ── Scrollbar ── */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 99px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
 }
 
-@layer utilities {
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    @apply bg-transparent;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-[var(--border)] rounded-full;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    @apply bg-[#3d4149];
-  }
-}
-
+/* ── Range inputs ── */
 input[type="range"] {
-  @apply h-1 bg-[var(--border)] rounded-full appearance-none cursor-pointer;
+  height: 4px;
+  background: var(--border);
+  border-radius: 99px;
+  appearance: none;
+  cursor: pointer;
+  width: 100%;
+  display: block;
 }
-
 input[type="range"]::-webkit-slider-thumb {
-  @apply w-3 h-3 rounded-full bg-white shadow-md cursor-pointer transition-transform hover:scale-125 appearance-none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  cursor: pointer;
+  transition: transform 0.15s;
+  appearance: none;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
 }
 
+/* ── Inputs & Select ── */
+input[type="text"],
+input[type="number"],
+input[type="email"],
+select,
+textarea {
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent) !important;
+}
+select option {
+  background: var(--surface2);
+  color: var(--text);
+}

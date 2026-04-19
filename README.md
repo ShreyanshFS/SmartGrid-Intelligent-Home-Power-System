@@ -13,6 +13,7 @@ A Vite + React app that simulates an intelligent home energy management dashboar
 - Smart modes for power saving and ultra conservation
 - Local state persistence in the browser
 - Optional AI assistant chat interface (Gemini-powered)
+- SMTP email alert reports from a configured project sender account
 
 ## Setup
 
@@ -26,7 +27,8 @@ A Vite + React app that simulates an intelligent home energy management dashboar
    ```bash
    copy .env.example .env.local
    ```
-3. Optionally set `GEMINI_API_KEY` in `.env.local` to enable AI assistant features.
+3. Optionally set `VITE_GEMINI_API_KEY` in `.env.local` to enable AI assistant features.
+4. Optionally set `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM` in `.env.local` to enable server-side alert emails.
 
 ## Run the app
 
@@ -46,7 +48,7 @@ Open the local development URL shown by Vite.
 
 ## Notes
 
-- The AI assistant feature is optional. The core app works without setting `GEMINI_API_KEY`.
+- The AI assistant feature is optional. The core app works without setting `VITE_GEMINI_API_KEY`.
 - The current app uses local browser storage for state persistence.
 
 ## License
