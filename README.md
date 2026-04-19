@@ -1,56 +1,125 @@
-<div align="center">
-<img width="1200" height="475" alt="SmartGrid Banner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
 # SmartGrid Intelligent Home Power Control System
 
-A Vite + React app that simulates an intelligent home energy management dashboard. The app includes battery monitoring, appliance control, power-saving modes, and optional AI assistant support.
+SmartGrid is a React and TypeScript dashboard for simulating a home inverter or backup-power control system. It models battery percentage, appliance load, charging input, automatic power-saving modes, activity logs, energy history, cost estimation, and alert reporting from one local web interface.
+
+The project is intended for demonstration, learning, and prototype validation. It does not directly control real appliances by itself, but it includes an ESP32/MQTT-ready placeholder for future hardware integration.
 
 ## Features
 
-- Real-time battery and load simulation
-- Appliance management with on/off controls
-- Smart modes for power saving and ultra conservation
-- Local state persistence in the browser
-- Optional AI assistant chat interface (Gemini-powered)
-- SMTP email alert reports from a configured project sender account
+- Battery percentage simulation with start/stop control
+- Appliance list with on/off controls and essential/non-essential priority
+- Automatic mode switching for Normal, Power Saving, and Ultra modes
+- Non-essential appliance cutoff during saving modes
+- Solar and grid charging input simulation
+- Battery and load trend graph in the Overview page
+- Simulated energy use and estimated cost calculation
+- CSV export for recorded energy samples
+- Browser local storage for saving dashboard state
+- SMTP email alert reports from a configured sender account
+- Optional Gemini-powered AI assistant for energy questions
+- Remote-control style tab for phone or IoT dashboard demonstrations
+
+## Tech Stack
+
+- React 19
+- TypeScript
+- Vite
+- Tailwind CSS
+- Express
+- Motion
+- Google GenAI SDK
 
 ## Setup
 
-**Prerequisites:** Node.js 18+ and npm
+Install dependencies:
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Create a local environment file from the example:
-   ```bash
-   copy .env.example .env.local
-   ```
-3. Optionally set `VITE_GEMINI_API_KEY` in `.env.local` to enable AI assistant features.
-4. Optionally set `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM` in `.env.local` to enable server-side alert emails.
+```bash
+npm install
+```
 
-## Run the app
+Create a local environment file:
+
+```bash
+copy .env.example .env.local
+```
+
+Run the development server:
 
 ```bash
 npm run dev
 ```
 
-Open the local development URL shown by Vite.
+Open:
 
-## Project structure
+```text
+http://127.0.0.1:3000
+```
 
-- `src/App.tsx` – app logic, dashboard, simulation, and optional AI chat.
-- `src/main.tsx` – app entry point.
-- `index.html` – page template.
-- `vite.config.ts` – Vite configuration.
-- `.env.example` – example environment variables.
+## Environment Variables
+
+The core dashboard works without any API keys.
+
+To enable the optional AI assistant, set:
+
+```env
+VITE_GEMINI_API_KEY="your_gemini_api_key"
+```
+
+To enable SMTP email alerts, set a dedicated sender account:
+
+```env
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT="587"
+SMTP_USER="your-project-alert-email@gmail.com"
+SMTP_PASS="your_app_password"
+SMTP_FROM="your-project-alert-email@gmail.com"
+```
+
+For Gmail, use an app password. Do not use your normal account password.
+
+## Available Scripts
+
+```bash
+npm run dev
+```
+
+Starts the Express server with Vite middleware.
+
+```bash
+npm run build
+```
+
+Builds the production frontend into `dist/`.
+
+```bash
+npm run start
+```
+
+Serves the production build through the Express server.
+
+```bash
+npm run lint
+```
+
+Runs TypeScript checks without emitting files.
+
+## Project Structure
+
+- `src/App.tsx` - main dashboard, simulation logic, tabs, controls, AI assistant UI
+- `src/main.tsx` - React entry point
+- `src/index.css` - Tailwind import, theme variables, global styles
+- `server.ts` - Express server and SMTP email alert endpoint
+- `vite.config.ts` - Vite and Tailwind configuration
+- `.env.example` - example local configuration
 
 ## Notes
 
-- The AI assistant feature is optional. The core app works without setting `VITE_GEMINI_API_KEY`.
-- The current app uses local browser storage for state persistence.
+- The app stores dashboard state in browser local storage.
+- The energy graph updates when the simulation is running.
+- SMTP alerts are sent by the configured sender account on the server side.
+- The hardware gateway section is a software placeholder for future ESP32, relay, inverter, or MQTT integration.
+- WhatsApp alerts are not built in because non-personal WhatsApp sending requires a provider such as WhatsApp Cloud API or Twilio.
 
 ## License
 
-Use or modify this project freely for learning and development.
+Use or modify this project for learning, demonstrations, and prototype development.
