@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 
 interface Appliance {
-  id: string; name: string; watts: number;
+  id: string; name: string; watts: number; quantity: number;
   isEssential: boolean; isOn: boolean; isAutoCut: boolean;
 }
 interface Notification {
@@ -19,7 +19,6 @@ interface EnergySample {
 interface SystemState {
   batteryPercent: number; mode: 'Normal' | 'Power Saving' | 'Ultra';
   powerSavingThreshold: number; ultraThreshold: number;
-  batteryCapacityWh: number;
   isSimulationRunning: boolean; isChargingEnabled: boolean;
   solarInputWatts: number; gridChargingWatts: number; energyCostPerKwh: number;
   alertEmail: string; isEmailAlertsEnabled: boolean;
@@ -27,34 +26,27 @@ interface SystemState {
 }
 
 const INITIAL_APPLIANCES: Appliance[] = [
-  { id: '1', name: 'Refrigerator', watts: 150, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '2', name: 'Fan Main', watts: 75, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '3', name: 'Fan Bedroom 1', watts: 75, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '4', name: 'Fan Bedroom 2', watts: 75, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '5', name: 'TV Living Room', watts: 100, isEssential: false, isOn: true, isAutoCut: false },
-  { id: '6', name: 'TV Bedroom', watts: 100, isEssential: false, isOn: true, isAutoCut: false },
-  { id: '7', name: 'Air Conditioner', watts: 1500, isEssential: false, isOn: false, isAutoCut: false },
-  { id: '8', name: 'Kitchen Lights', watts: 40, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '9', name: 'Hall Lights', watts: 40, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '10', name: 'BR1 Lights', watts: 40, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '11', name: 'BR2 Lights', watts: 40, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '12', name: 'Entry Lights', watts: 40, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '13', name: 'Porch Lights', watts: 40, isEssential: true, isOn: true, isAutoCut: false },
-  { id: '14', name: 'Washing Machine', watts: 500, isEssential: false, isOn: false, isAutoCut: false },
+  { id: '1', name: 'Refrigerator', watts: 150, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '2', name: 'Fan Main', watts: 75, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '3', name: 'Fan Bedroom 1', watts: 75, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '4', name: 'Fan Bedroom 2', watts: 75, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '5', name: 'TV Living Room', watts: 100, quantity: 1, isEssential: false, isOn: true, isAutoCut: false },
+  { id: '6', name: 'TV Bedroom', watts: 100, quantity: 1, isEssential: false, isOn: true, isAutoCut: false },
+  { id: '7', name: 'Air Conditioner', watts: 1500, quantity: 1, isEssential: false, isOn: false, isAutoCut: false },
+  { id: '8', name: 'Kitchen Lights', watts: 40, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '9', name: 'Hall Lights', watts: 40, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '10', name: 'BR1 Lights', watts: 40, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '11', name: 'BR2 Lights', watts: 40, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '12', name: 'Entry Lights', watts: 40, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '13', name: 'Porch Lights', watts: 40, quantity: 1, isEssential: true, isOn: true, isAutoCut: false },
+  { id: '14', name: 'Washing Machine', watts: 500, quantity: 1, isEssential: false, isOn: false, isAutoCut: false },
 ];
 
-const DEFAULT_BATTERY_CAPACITY_WH = 10000, POWER_SAVING_CUT_WATTS = 300, SYNC_KEY = 'sg-state', SYNC_INTERVAL_MS = 3000, SIM_TICK_MS = 4000, HISTORY_LIMIT = 36;
-
-const applyModePolicy = (appliances: Appliance[], mode: SystemState['mode']) => appliances.map(app => {
-  if (mode === 'Normal') return { ...app, isAutoCut: false };
-  if (mode === 'Power Saving') return { ...app, isAutoCut: !app.isEssential && app.watts >= POWER_SAVING_CUT_WATTS };
-  return { ...app, isAutoCut: !app.isEssential };
-});
+const BATTERY_TOTAL_WH = 1000, SYNC_KEY = 'sg-state', SYNC_INTERVAL_MS = 3000, SIM_TICK_MS = 4000, HISTORY_LIMIT = 36;
 
 const createInitialState = (): SystemState => ({
   batteryPercent: 85, mode: 'Normal',
   powerSavingThreshold: 30, ultraThreshold: 5,
-  batteryCapacityWh: DEFAULT_BATTERY_CAPACITY_WH,
   isSimulationRunning: false, isChargingEnabled: true,
   solarInputWatts: 220, gridChargingWatts: 0, energyCostPerKwh: 8,
   alertEmail: '', isEmailAlertsEnabled: false,
@@ -69,10 +61,12 @@ const hydrateState = (saved: string | null): SystemState => {
     return {
       ...createInitialState(),
       ...parsed,
-      appliances: Array.isArray(parsed.appliances) ? parsed.appliances : INITIAL_APPLIANCES,
+      // backfill quantity:1 for any saved appliances that predate this field
+      appliances: Array.isArray(parsed.appliances)
+        ? parsed.appliances.map((a: Appliance) => ({ quantity: 1, ...a }))
+        : INITIAL_APPLIANCES,
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       usageHistory: Array.isArray(parsed.usageHistory) ? parsed.usageHistory : [],
-      batteryCapacityWh: parsed.batteryCapacityWh ?? DEFAULT_BATTERY_CAPACITY_WH,
       isChargingEnabled: parsed.isChargingEnabled ?? true,
       solarInputWatts: parsed.solarInputWatts ?? 220,
       gridChargingWatts: parsed.gridChargingWatts ?? 0,
@@ -89,7 +83,6 @@ const appendHistory = (history: EnergySample[], sample: EnergySample) => [...his
 
 // ─── Reusable primitives ───────────────────────────────────────────────────────
 
-/** Sidebar card wrapper — fixed header, scrollable body */
 const SideCard = ({ title, badge, children, className = '' }: any) => (
   <div className={`flex flex-col bg-[var(--surface)] border border-[var(--border)] rounded-2xl overflow-hidden ${className}`}>
     <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0">
@@ -117,12 +110,28 @@ const Toggle = ({ isOn, disabled, onClick }: { isOn: boolean; disabled?: boolean
   </button>
 );
 
+// ─── Quantity Stepper ──────────────────────────────────────────────────────────
+
+const QuantityStepper = ({ quantity, disabled, onChange }: { quantity: number; disabled?: boolean; onChange: (q: number) => void }) => (
+  <div className={`flex items-center gap-1 shrink-0 ${disabled ? 'opacity-30 pointer-events-none' : ''}`}>
+    <button
+      onClick={() => onChange(Math.max(1, quantity - 1))}
+      className="w-5 h-5 rounded bg-[var(--surface)] border border-[var(--border)] text-[var(--text-dim)] text-xs font-bold flex items-center justify-center hover:text-white hover:border-[var(--accent)] transition-colors"
+    >−</button>
+    <span className="text-xs font-mono font-bold w-4 text-center">{quantity}</span>
+    <button
+      onClick={() => onChange(Math.min(10, quantity + 1))}
+      className="w-5 h-5 rounded bg-[var(--surface)] border border-[var(--border)] text-[var(--text-dim)] text-xs font-bold flex items-center justify-center hover:text-white hover:border-[var(--accent)] transition-colors"
+    >+</button>
+  </div>
+);
+
 // ─── Arc Battery Gauge ─────────────────────────────────────────────────────────
 
 const ArcGauge = ({ pct }: { pct: number }) => {
   const r = 54, cx = 70, cy = 70;
   const circumference = 2 * Math.PI * r;
-  const arcRatio = 0.72; // 260° sweep
+  const arcRatio = 0.72;
   const arcLen = circumference * arcRatio;
   const offset = arcLen - (pct / 100) * arcLen;
   const rotate = 90 + (1 - arcRatio) * 180;
@@ -131,13 +140,11 @@ const ArcGauge = ({ pct }: { pct: number }) => {
     <svg width="140" height="110" viewBox="0 0 140 110" className="mx-auto">
       <circle cx={cx} cy={cy} r={r} fill="none"
         stroke="rgba(255,255,255,0.06)" strokeWidth="11" strokeLinecap="round"
-        strokeDasharray={`${arcLen} ${circumference}`}
-        strokeDashoffset={0}
+        strokeDasharray={`${arcLen} ${circumference}`} strokeDashoffset={0}
         transform={`rotate(${rotate} ${cx} ${cy})`} />
       <circle cx={cx} cy={cy} r={r} fill="none"
         stroke={color} strokeWidth="11" strokeLinecap="round"
-        strokeDasharray={`${arcLen} ${circumference}`}
-        strokeDashoffset={offset}
+        strokeDasharray={`${arcLen} ${circumference}`} strokeDashoffset={offset}
         transform={`rotate(${rotate} ${cx} ${cy})`}
         style={{ transition: 'stroke-dashoffset 1s ease, stroke 0.5s' }} />
       <text x={cx} y={cy - 4} textAnchor="middle" dominantBaseline="central"
@@ -175,8 +182,6 @@ const ModeSwitcher = ({ mode, onChange }: { mode: string; onChange: (m: any) => 
   );
 };
 
-// ─── Stat Chip ─────────────────────────────────────────────────────────────────
-
 const Chip = ({ label, value, accent }: { label: string; value: string; accent?: string }) => (
   <div className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-3">
     <div className="text-[0.6rem] text-[var(--text-dim)] uppercase tracking-wider mb-1">{label}</div>
@@ -184,18 +189,11 @@ const Chip = ({ label, value, accent }: { label: string; value: string; accent?:
   </div>
 );
 
-// ─── Main App ──────────────────────────────────────────────────────────────────
-
 const HistoryChart = ({ history }: { history: EnergySample[] }) => {
   const width = 260, height = 120, pad = 10;
   const points = history.length ? history : [{
-    id: 'empty',
-    time: '',
-    batteryPercent: 85,
-    activeLoad: 0,
-    chargingWatts: 0,
-    netWatts: 0,
-    mode: 'Normal' as const
+    id: 'empty', time: '', batteryPercent: 85, activeLoad: 0,
+    chargingWatts: 0, netWatts: 0, mode: 'Normal' as const
   }];
   const maxLoad = Math.max(100, ...points.map(p => Math.max(p.activeLoad, p.chargingWatts)));
   const xFor = (i: number) => pad + (i / Math.max(1, points.length - 1)) * (width - pad * 2);
@@ -207,10 +205,9 @@ const HistoryChart = ({ history }: { history: EnergySample[] }) => {
     const y = pad + (1 - p.activeLoad / maxLoad) * (height - pad * 2);
     return `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
-
   return (
     <div className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-3">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-28" role="img" aria-label="Battery and load history chart">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-28">
         <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke="var(--border)" />
         <line x1={pad} y1={pad} x2={pad} y2={height - pad} stroke="var(--border)" />
         <path d={loadPath} fill="none" stroke="var(--warning)" strokeWidth="2" strokeLinecap="round" />
@@ -224,29 +221,27 @@ const HistoryChart = ({ history }: { history: EnergySample[] }) => {
   );
 };
 
+// ─── Main App ──────────────────────────────────────────────────────────────────
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('Overview');
-  const [state, setState] = useState<SystemState>(() => {
-    const saved = localStorage.getItem(SYNC_KEY);
-    return hydrateState(saved);
-  });
-
+  const [state, setState] = useState<SystemState>(() => hydrateState(localStorage.getItem(SYNC_KEY)));
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [newAppliance, setNewAppliance] = useState({ name: '', watts: 0, quantity: 1, isEssential: false });
 
+  // quantity × watts
   const activeLoad = useMemo(() =>
-    state.appliances.filter(a => a.isOn && !a.isAutoCut).reduce((s, a) => s + a.watts, 0),
+    state.appliances.filter(a => a.isOn && !a.isAutoCut).reduce((s, a) => s + a.watts * (a.quantity ?? 1), 0),
     [state.appliances]);
   const chargingWatts = useMemo(() =>
     state.isChargingEnabled ? state.solarInputWatts + state.gridChargingWatts : 0,
     [state.isChargingEnabled, state.solarInputWatts, state.gridChargingWatts]);
   const netBatteryWatts = useMemo(() => activeLoad - chargingWatts, [activeLoad, chargingWatts]);
-
   const estimatedRuntime = useMemo(() => {
     if (netBatteryWatts <= 0) return 99.9;
-    return ((state.batteryPercent / 100) * state.batteryCapacityWh) / netBatteryWatts;
-  }, [state.batteryPercent, state.batteryCapacityWh, netBatteryWatts]);
+    return ((state.batteryPercent / 100) * BATTERY_TOTAL_WH) / netBatteryWatts;
+  }, [state.batteryPercent, netBatteryWatts]);
   const simulatedKwh = useMemo(() =>
     state.usageHistory.reduce((sum, s) => sum + (s.activeLoad * SIM_TICK_MS / 3_600_000 / 1000), 0),
     [state.usageHistory]);
@@ -270,7 +265,9 @@ export default function App() {
   const handleModeChange = (newMode: SystemState['mode']) => {
     updateState(prev => ({
       ...prev, mode: newMode,
-      appliances: applyModePolicy(prev.appliances, newMode)
+      appliances: prev.appliances.map(a =>
+        newMode !== 'Normal' ? { ...a, isAutoCut: !a.isEssential } : { ...a, isAutoCut: false }
+      )
     }));
     addNotification(`Mode set to ${newMode}.`);
   };
@@ -281,6 +278,10 @@ export default function App() {
     if (app) addNotification(`${isRemote ? '[Remote] ' : ''}${app.name} → ${!app.isOn ? 'ON' : 'OFF'}`);
   };
 
+  const updateQuantity = (id: string, quantity: number) => {
+    updateState(prev => ({ ...prev, appliances: prev.appliances.map(a => a.id === id ? { ...a, quantity } : a) }));
+  };
+
   const formatRuntime = () => {
     if (netBatteryWatts <= 0) return 'Charging';
     return `${Math.floor(estimatedRuntime)}h ${Math.round((estimatedRuntime % 1) * 60)}m`;
@@ -288,23 +289,16 @@ export default function App() {
 
   const sendEmailAlert = async (reason = 'Manual SmartGrid alert') => {
     if (!state.isEmailAlertsEnabled || !state.alertEmail.trim()) {
-      addNotification('Enable SMTP email alerts and add a recipient first.', 'warning');
-      return;
+      addNotification('Enable SMTP email alerts and add a recipient first.', 'warning'); return;
     }
     try {
       const response = await fetch('/api/send-alert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          recipient: state.alertEmail.trim(),
-          reason,
-          batteryPercent: state.batteryPercent,
-          mode: state.mode,
-          activeLoad,
-          chargingWatts,
-          netWatts: netBatteryWatts,
-          estimatedRuntime: formatRuntime(),
-          timestamp: new Date().toLocaleString(),
+          recipient: state.alertEmail.trim(), reason,
+          batteryPercent: state.batteryPercent, mode: state.mode,
+          activeLoad, chargingWatts, netWatts: netBatteryWatts,
+          estimatedRuntime: formatRuntime(), timestamp: new Date().toLocaleString(),
           appliances: state.appliances
         })
       });
@@ -316,7 +310,6 @@ export default function App() {
     }
   };
 
-  // Auto mode switch on battery change
   useEffect(() => {
     const { batteryPercent, powerSavingThreshold, ultraThreshold, mode } = state;
     let target = mode;
@@ -325,33 +318,26 @@ export default function App() {
     if (target !== mode) {
       updateState(prev => ({
         ...prev, mode: target,
-        appliances: applyModePolicy(prev.appliances, target)
+        appliances: prev.appliances.map(a => ({ ...a, isAutoCut: target !== 'Normal' && !a.isEssential }))
       }));
       addNotification(`Auto-switched to ${target} mode.`, 'warning');
     }
   }, [state.batteryPercent]);
 
-  // Simulation tick
   useEffect(() => {
     if (!state.isSimulationRunning) return;
     const interval = setInterval(() => {
       updateState(prev => {
         const inputWatts = prev.isChargingEnabled ? prev.solarInputWatts + prev.gridChargingWatts : 0;
         const netWatts = activeLoad - inputWatts;
-        const delta = (netWatts / prev.batteryCapacityWh) * 100 * (SIM_TICK_MS / 3_600_000);
+        const delta = (netWatts / BATTERY_TOTAL_WH) * 100 * (SIM_TICK_MS / 3_600_000);
         const nextBattery = Math.min(100, Math.max(0, prev.batteryPercent - delta));
         return {
-          ...prev,
-          batteryPercent: nextBattery,
+          ...prev, batteryPercent: nextBattery,
           isSimulationRunning: nextBattery <= 0 && netWatts > 0 ? false : prev.isSimulationRunning,
           usageHistory: appendHistory(prev.usageHistory, {
-            id: Date.now().toString(),
-            time: new Date().toLocaleTimeString(),
-            batteryPercent: nextBattery,
-            activeLoad,
-            chargingWatts: inputWatts,
-            netWatts,
-            mode: prev.mode
+            id: Date.now().toString(), time: new Date().toLocaleTimeString(),
+            batteryPercent: nextBattery, activeLoad, chargingWatts: inputWatts, netWatts, mode: prev.mode
           })
         };
       });
@@ -359,7 +345,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [state.isSimulationRunning, activeLoad]);
 
-  // Cross-tab sync
   useEffect(() => {
     const interval = setInterval(() => {
       const saved = localStorage.getItem(SYNC_KEY);
@@ -378,9 +363,7 @@ export default function App() {
       const ai = new GoogleGenAI({ apiKey });
       const result = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        config: {
-          systemInstruction: `SmartGrid AI. Battery: ${state.batteryPercent.toFixed(1)}%, Mode: ${state.mode}, Load: ${activeLoad}W, Runtime: ${estimatedRuntime.toFixed(1)}h.`
-        },
+        config: { systemInstruction: `SmartGrid AI. Battery: ${state.batteryPercent.toFixed(1)}%, Mode: ${state.mode}, Load: ${activeLoad}W, Runtime: ${estimatedRuntime.toFixed(1)}h.` },
         contents: question
       });
       setChatMessages(prev => [...prev, { role: 'assistant', text: result.text || 'No response.' }]);
@@ -393,7 +376,6 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
-      {/* ── Nav ── */}
       <nav className="h-14 border-b border-[var(--border)] flex items-center px-5 justify-between bg-[var(--bg)] shrink-0 z-10">
         <div className="flex items-center gap-2.5 font-bold text-base tracking-tight">
           <div className="w-7 h-7 bg-[var(--accent)] rounded-lg flex items-center justify-center shrink-0">
@@ -401,34 +383,30 @@ export default function App() {
           </div>
           SmartGrid
         </div>
-
         <div className="flex gap-1 bg-[var(--surface)] p-1 rounded-lg border border-[var(--border)]">
           {tabs.map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`px-3 py-1.5 rounded-md text-[0.75rem] font-medium transition-all whitespace-nowrap ${
-                activeTab === tab
-                  ? 'text-white bg-[var(--bg)] border border-[var(--border)] shadow-sm'
-                  : 'text-[var(--text-dim)] hover:text-white'
+                activeTab === tab ? 'text-white bg-[var(--bg)] border border-[var(--border)] shadow-sm' : 'text-[var(--text-dim)] hover:text-white'
               }`}>
               {tab}
             </button>
           ))}
         </div>
-
         <div className="flex items-center gap-1.5 text-[0.65rem] font-mono text-[var(--success)] font-semibold">
           <span className={`w-1.5 h-1.5 rounded-full bg-[var(--success)] ${state.isSimulationRunning ? 'animate-pulse' : ''}`} />
           LIVE SYNC — 3S
         </div>
       </nav>
 
-      {/* ── Tab Content ── */}
       <main className="flex-1 min-h-0 overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.div key={activeTab} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.15 }} className="h-full">
             {activeTab === 'Overview' && (
               <OverviewTab state={state} activeLoad={activeLoad} runtime={estimatedRuntime}
-                toggleAppliance={toggleAppliance} handleModeChange={handleModeChange} updateState={updateState} />
+                toggleAppliance={toggleAppliance} updateQuantity={updateQuantity}
+                handleModeChange={handleModeChange} updateState={updateState} />
             )}
             {activeTab === 'Control' && (
               <ControlTab state={state} updateState={updateState}
@@ -437,7 +415,8 @@ export default function App() {
                 newAppliance={newAppliance} setNewAppliance={setNewAppliance} />
             )}
             {activeTab === 'Remote Control' && (
-              <RemoteTab state={state} handleModeChange={handleModeChange} toggleAppliance={toggleAppliance} />
+              <RemoteTab state={state} handleModeChange={handleModeChange}
+                toggleAppliance={toggleAppliance} updateQuantity={updateQuantity} />
             )}
             {activeTab === 'AI Assistant' && (
               <AITab messages={chatMessages} isTyping={isTyping} onAsk={askAI} />
@@ -447,7 +426,6 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* ── Global battery strip ── */}
       <div className="h-0.5 w-full bg-[var(--border)] shrink-0">
         <motion.div className="h-full" animate={{ width: `${state.batteryPercent}%` }}
           style={{ backgroundColor: state.batteryPercent > 30 ? 'var(--success)' : state.batteryPercent > 10 ? 'var(--warning)' : 'var(--danger)' }}
@@ -458,44 +436,60 @@ export default function App() {
 }
 
 // ─── Overview Tab ──────────────────────────────────────────────────────────────
-// Layout: LEFT sidebar (fixed 252px) | CENTER flex-1 | RIGHT sidebar (fixed 252px)
-// Each column is independently scrollable — no row-span fights, no overflow clipping.
 
-function OverviewTab({ state, activeLoad, runtime, toggleAppliance, handleModeChange, updateState }: any) {
-  const battColor = state.batteryPercent > 30 ? 'text-[var(--success)]' : state.batteryPercent > 10 ? 'text-[var(--warning)]' : 'text-[var(--danger)]';
-  const wattsSaved = state.appliances.filter((a: Appliance) => !a.isOn).reduce((s: number, a: Appliance) => s + a.watts, 0);
-  const chargeInput = state.isChargingEnabled ? state.solarInputWatts + state.gridChargingWatts : 0;
-  const netLoad = activeLoad - chargeInput;
+function OverviewTab({ state, activeLoad, runtime, toggleAppliance, updateQuantity, handleModeChange, updateState }: any) {
+  const wattsSaved = state.appliances.filter((a: Appliance) => !a.isOn).reduce((s: number, a: Appliance) => s + a.watts * (a.quantity ?? 1), 0);
   const runtimeH = Math.floor(runtime);
   const runtimeM = Math.round((runtime % 1) * 60);
-  const runtimeLabel = netLoad <= 0 ? 'Charging' : `${runtimeH}h ${runtimeM}m`;
+
+  // Inline editing state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editWatts, setEditWatts] = useState('');
+  const [editEssential, setEditEssential] = useState(false);
+
+  const startEdit = (app: Appliance) => {
+    setEditingId(app.id);
+    setEditName(app.name);
+    setEditWatts(String(app.watts));
+    setEditEssential(app.isEssential);
+  };
+
+  const commitEdit = () => {
+    if (!editingId) return;
+    const w = parseInt(editWatts, 10);
+    if (!editName.trim() || isNaN(w) || w <= 0) { setEditingId(null); return; }
+    updateState((p: any) => ({
+      ...p,
+      appliances: p.appliances.map((a: Appliance) =>
+        a.id === editingId ? { ...a, name: editName.trim(), watts: w, isEssential: editEssential } : a
+      )
+    }));
+    setEditingId(null);
+  };
+
+  const removeAppliance = (id: string) => {
+    updateState((p: any) => ({ ...p, appliances: p.appliances.filter((a: Appliance) => a.id !== id) }));
+  };
 
   return (
     <div className="flex h-full gap-3 p-4 overflow-hidden">
 
-      {/* ── LEFT: Battery + Mode + Stats ── */}
       <aside className="w-[248px] shrink-0 flex flex-col gap-3 overflow-y-auto custom-scrollbar">
-
-        {/* Battery gauge */}
         <SideCard title="Battery"
           badge={<span className="bg-blue-500/10 text-[var(--accent)] px-2 py-0.5 rounded text-[0.6rem] font-bold border border-blue-500/20">{state.mode.toUpperCase()}</span>}>
           <div className="p-4 flex flex-col items-center gap-3">
             <ArcGauge pct={state.batteryPercent} />
-            <div className="w-full">
-              <ModeSwitcher mode={state.mode} onChange={handleModeChange} />
-            </div>
+            <div className="w-full"><ModeSwitcher mode={state.mode} onChange={handleModeChange} /></div>
             <div className="w-full grid grid-cols-2 gap-2">
-              <Chip label="Runtime" value={runtimeLabel} />
+              <Chip label="Runtime" value={`${runtimeH}h ${runtimeM}m`} />
               <Chip label="Load" value={`${activeLoad}W`} accent="text-[var(--accent)]" />
-              <Chip label="Charge In" value={`${chargeInput}W`} accent="text-[var(--warning)]" />
-              <Chip label="Capacity" value={`${(state.batteryCapacityWh / 1000).toFixed(1)} kWh`} />
               <Chip label="Saved" value={`${wattsSaved}W`} accent="text-[var(--success)]" />
               <Chip label="Active" value={`${state.appliances.filter((a: Appliance) => a.isOn && !a.isAutoCut).length}`} />
             </div>
           </div>
         </SideCard>
 
-        {/* Simulation toggle */}
         <button
           onClick={() => updateState((p: any) => ({ ...p, isSimulationRunning: !p.isSimulationRunning }))}
           className={`w-full py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all ${
@@ -506,52 +500,104 @@ function OverviewTab({ state, activeLoad, runtime, toggleAppliance, handleModeCh
           {state.isSimulationRunning ? '⏹ Stop Simulation' : '▶ Start Simulation'}
         </button>
 
-        {/* AI snippet */}
         <SideCard title="AI Assistant">
           <div className="p-4 flex flex-col gap-3">
             <p className="text-[0.75rem] text-[var(--text-dim)] leading-relaxed italic">
               Battery at {Math.round(state.batteryPercent)}%. Load is {activeLoad}W. {state.mode !== 'Normal' ? `${state.mode} mode active.` : 'System nominal.'}
             </p>
-            <div className="flex flex-wrap gap-1.5">
-              {['Overview', 'Usage Tips', 'Report'].map(btn => (
-                <button key={btn} className="bg-[var(--bg)] border border-[var(--border)] px-2.5 py-1 rounded-lg text-[0.65rem] text-[var(--text-dim)] hover:text-white transition-colors">{btn}</button>
-              ))}
-            </div>
           </div>
         </SideCard>
       </aside>
 
-      {/* ── CENTER: Appliance List ── */}
+      {/* CENTER: Appliance List with quantity steppers */}
       <section className="flex-1 min-w-0 flex flex-col gap-3 overflow-hidden">
         <SideCard title="Active Appliances"
-          badge={<span className="text-[0.6rem] text-[var(--text-dim)] font-semibold">{state.appliances.filter((a: Appliance) => a.isOn && !a.isAutoCut).length} / {state.appliances.length} ON</span>}
+          badge={
+            <div className="flex items-center gap-2">
+              <span className="text-[0.6rem] text-[var(--text-dim)] font-semibold">{state.appliances.filter((a: Appliance) => a.isOn && !a.isAutoCut).length} / {state.appliances.length} ON</span>
+            </div>
+          }
           className="flex-1">
           <div className="overflow-y-auto custom-scrollbar flex-1 p-3 flex flex-col gap-1.5">
-            {state.appliances.map((app: Appliance) => (
-              <div key={app.id}
-                className="flex items-center justify-between px-4 py-3 bg-[var(--bg)] border border-[var(--border)] rounded-xl hover:border-[var(--border-hover,#3f3f46)] transition-colors">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${app.isOn && !app.isAutoCut ? 'bg-[var(--success)]' : 'bg-[var(--border)]'}`} />
-                  <div className="min-w-0">
-                    <div className="text-[0.825rem] font-medium truncate">{app.name}</div>
-                    <div className="text-[0.7rem] text-[var(--text-dim)]">
-                      {app.watts}W · {app.isEssential ? 'Essential' : 'Regular'}
+            {state.appliances.map((app: Appliance) => {
+              const qty = app.quantity ?? 1;
+              const totalW = app.watts * qty;
+              return (
+                <div key={app.id}
+                  className="group flex items-center justify-between px-3 py-2.5 bg-[var(--bg)] border border-[var(--border)] rounded-xl hover:border-[var(--border-hover,#3f3f46)] transition-colors">
+
+                  {editingId === app.id ? (
+                    /* ── Edit Mode ── */
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${app.isOn && !app.isAutoCut ? 'bg-[var(--success)]' : 'bg-[var(--border)]'}`} />
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingId(null); }}
+                        className="bg-[var(--surface)] border border-[var(--accent)] rounded-md px-2 py-0.5 text-[0.8rem] w-28 focus:outline-none"
+                      />
+                      <input
+                        type="number"
+                        value={editWatts}
+                        onChange={e => setEditWatts(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingId(null); }}
+                        className="bg-[var(--surface)] border border-[var(--accent)] rounded-md px-2 py-0.5 text-[0.8rem] w-16 focus:outline-none"
+                      />
+                      <select
+                        value={editEssential ? 't' : 'f'}
+                        onChange={e => setEditEssential(e.target.value === 't')}
+                        className="bg-[var(--surface)] border border-[var(--border)] rounded-md px-1.5 py-0.5 text-[0.7rem] focus:outline-none"
+                      >
+                        <option value="f">Regular</option>
+                        <option value="t">Essential</option>
+                      </select>
+                      <button onClick={commitEdit} className="text-[var(--success)] text-[0.75rem] font-bold px-2 hover:opacity-80">✓</button>
+                      <button onClick={() => setEditingId(null)} className="text-[var(--text-dim)] text-[0.75rem] px-1 hover:opacity-80">✕</button>
                     </div>
+                  ) : (
+                    /* ── Display Mode ── */
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${app.isOn && !app.isAutoCut ? 'bg-[var(--success)]' : 'bg-[var(--border)]'}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[0.825rem] font-medium truncate">{app.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => startEdit(app)}
+                            title="Click to edit"
+                            className="text-[0.7rem] text-[var(--accent)] bg-blue-500/8 border border-blue-500/15 px-1.5 py-0 rounded hover:bg-blue-500/20 transition-colors font-mono"
+                          >
+                            {qty > 1 ? `${totalW}W (${app.watts}W×${qty})` : `${app.watts}W`} ✎
+                          </button>
+                          <span className="text-[0.65rem] text-[var(--text-dim)]">· {app.isEssential ? 'Essential' : 'Regular'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 shrink-0 ml-1">
+                    {app.isAutoCut ? (
+                      <span className="text-[0.6rem] font-bold text-[var(--danger)] bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">CUT</span>
+                    ) : editingId !== app.id ? (
+                      <QuantityStepper quantity={qty} onChange={q => updateQuantity(app.id, q)} />
+                    ) : null}
+                    {editingId !== app.id && (
+                      <button
+                        onClick={() => removeAppliance(app.id)}
+                        title="Remove appliance"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--danger)] text-[0.75rem] w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/10"
+                      >✕</button>
+                    )}
+                    <Toggle isOn={app.isOn && !app.isAutoCut} disabled={app.isAutoCut} onClick={() => toggleAppliance(app.id)} />
                   </div>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  {app.isAutoCut && (
-                    <span className="text-[0.6rem] font-bold text-[var(--danger)] bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">CUT</span>
-                  )}
-                  <Toggle isOn={app.isOn && !app.isAutoCut} disabled={app.isAutoCut} onClick={() => toggleAppliance(app.id)} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </SideCard>
       </section>
 
-      {/* ── RIGHT: Activity Log ── */}
       <aside className="w-[248px] shrink-0 flex flex-col gap-3 overflow-hidden">
         <SideCard title="Energy Trends"
           badge={<span className="text-[0.6rem] text-[var(--text-dim)] font-semibold">{state.usageHistory.length} samples</span>}>
@@ -583,7 +629,6 @@ function OverviewTab({ state, activeLoad, runtime, toggleAppliance, handleModeCh
 }
 
 // ─── Control Tab ───────────────────────────────────────────────────────────────
-// Single scrollable column layout — sections stack cleanly, no 2-col grid overflow.
 
 function ControlTab({ state, updateState, handleModeChange, addNotification, sendEmailAlert, simulatedKwh, estimatedCost, newAppliance, setNewAppliance }: any) {
   const toggleSim = () => {
@@ -596,35 +641,26 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
     const rows = state.usageHistory.map((s: EnergySample) => [
       s.time, s.batteryPercent.toFixed(2), s.activeLoad, s.chargingWatts, s.netWatts, s.mode
     ]);
-    const csv = [headers, ...rows].map(row => row.map(String).map(value => `"${value.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = [headers, ...rows].map(row => row.map(String).map(v => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `smartgrid-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    link.href = url; link.download = `smartgrid-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click(); URL.revokeObjectURL(url);
     addNotification('Energy CSV report exported.', 'success');
   };
 
   const registerDevice = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAppliance.name || newAppliance.watts <= 0) return;
-    const quantity = Math.max(1, Math.min(50, Math.floor(Number(newAppliance.quantity) || 1)));
-    const baseName = newAppliance.name.trim();
-    const newDevices = Array.from({ length: quantity }, (_, index) => ({
-      id: `${Date.now()}-${index}`,
-      name: quantity === 1 ? baseName : `${baseName} ${index + 1}`,
-      watts: newAppliance.watts,
-      isEssential: newAppliance.isEssential,
-      isOn: false,
-      isAutoCut: false
-    }));
     updateState((p: any) => ({
-      ...p,
-      appliances: applyModePolicy([...p.appliances, ...newDevices], p.mode)
+      ...p, appliances: [...p.appliances, {
+        id: Date.now().toString(), ...newAppliance,
+        quantity: Math.max(1, newAppliance.quantity || 1),
+        isOn: false, isAutoCut: false
+      }]
     }));
-    addNotification(`Registered ${quantity} x ${baseName}.`);
+    addNotification(`Registered: ${newAppliance.name} ×${newAppliance.quantity || 1}`);
     setNewAppliance({ name: '', watts: 0, quantity: 1, isEssential: false });
   };
 
@@ -632,7 +668,6 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
     <div className="h-full overflow-y-auto custom-scrollbar p-4">
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
 
-        {/* Grid Simulation */}
         <SideCard title="Grid Simulation">
           <div className="p-5 flex flex-col gap-5">
             <div className="flex items-center justify-between bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4">
@@ -647,7 +682,6 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
                 {state.isSimulationRunning ? 'Stop Cut' : 'Start Cut'}
               </button>
             </div>
-
             <div>
               <div className="flex justify-between text-xs font-mono mb-2">
                 <span className="text-[var(--text-dim)]">BATTERY OVERRIDE</span>
@@ -656,27 +690,6 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
               <input type="range" className="w-full" value={state.batteryPercent}
                 onChange={e => updateState((p: any) => ({ ...p, batteryPercent: Number(e.target.value) }))} />
             </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-mono mb-2">
-                <span className="text-[var(--text-dim)]">BATTERY CAPACITY</span>
-                <span className="text-[var(--success)]">{(state.batteryCapacityWh / 1000).toFixed(1)} kWh</span>
-              </div>
-              <input type="range" min="1000" max="20000" step="500" className="w-full" value={state.batteryCapacityWh}
-                onChange={e => updateState((p: SystemState) => ({ ...p, batteryCapacityWh: Number(e.target.value) }))} />
-              <div className="grid grid-cols-3 gap-2 mt-3">
-                {[5000, 10000, 15000].map(capacity => (
-                  <button key={capacity} type="button"
-                    onClick={() => updateState((p: SystemState) => ({ ...p, batteryCapacityWh: capacity }))}
-                    className={`rounded-lg border px-2 py-1.5 text-[0.65rem] font-bold ${
-                      state.batteryCapacityWh === capacity ? 'bg-[var(--accent)] border-[var(--accent)] text-white' : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-dim)]'
-                    }`}>
-                    {capacity / 1000} kWh
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div>
               <div className="text-[0.65rem] text-[var(--text-dim)] uppercase tracking-wider mb-2 font-semibold">System Mode</div>
               <ModeSwitcher mode={state.mode} onChange={handleModeChange} />
@@ -684,7 +697,6 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
           </div>
         </SideCard>
 
-        {/* Automatic Logic */}
         <SideCard title="Automatic Logic">
           <div className="p-5 flex flex-col gap-6">
             {[
@@ -700,13 +712,9 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
                   onChange={e => updateState((p: any) => ({ ...p, [s.key]: Number(e.target.value) }))} />
               </div>
             ))}
-            <div className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-3 text-[0.7rem] text-[var(--text-dim)] leading-relaxed">
-              Power Saving cuts only high-load non-essential devices ({POWER_SAVING_CUT_WATTS}W+). Ultra cuts every non-essential device, so Ultra always leaves less load and cuts more appliances.
-            </div>
           </div>
         </SideCard>
 
-        {/* Charging And Cost */}
         <SideCard title="Charging And Cost">
           <div className="p-5 flex flex-col gap-5">
             <div className="flex items-center justify-between bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4">
@@ -719,7 +727,6 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
               </div>
               <Toggle isOn={state.isChargingEnabled} onClick={() => updateState((p: SystemState) => ({ ...p, isChargingEnabled: !p.isChargingEnabled }))} />
             </div>
-
             {[
               { label: 'SOLAR INPUT', val: state.solarInputWatts, key: 'solarInputWatts', max: 1000, unit: 'W' },
               { label: 'GRID CHARGER', val: state.gridChargingWatts, key: 'gridChargingWatts', max: 800, unit: 'W' },
@@ -734,7 +741,6 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
                   onChange={e => updateState((p: any) => ({ ...p, [s.key]: Number(e.target.value) }))} />
               </div>
             ))}
-
             <div className="grid grid-cols-2 gap-3">
               <Chip label="Sim Energy" value={`${simulatedKwh.toFixed(3)} kWh`} />
               <Chip label="Est. Cost" value={`Rs ${estimatedCost.toFixed(2)}`} />
@@ -750,7 +756,6 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
           </div>
         </SideCard>
 
-        {/* Hardware Gateway */}
         <SideCard title="Hardware Gateway">
           <div className="p-5 flex flex-col gap-4">
             <div className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4 flex items-start gap-3">
@@ -767,7 +772,6 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
           </div>
         </SideCard>
 
-        {/* Alert Channels */}
         <SideCard title="Alert Channels">
           <div className="p-5 flex flex-col gap-4">
             <div className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4 flex items-center justify-between gap-3">
@@ -787,7 +791,7 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
           </div>
         </SideCard>
 
-        {/* Device Registration */}
+        {/* Device Registration — now with Quantity field */}
         <SideCard title="Device Registration" className="xl:col-span-2">
           <div className="p-5">
             <form onSubmit={registerDevice} className="grid grid-cols-1 sm:grid-cols-5 gap-3">
@@ -796,7 +800,7 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
                 <input type="text" value={newAppliance.name}
                   onChange={e => setNewAppliance({ ...newAppliance, name: e.target.value })}
                   className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full"
-                  placeholder="e.g. Bedroom Fan" />
+                  placeholder="e.g. Microwave" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.6rem] text-[var(--text-dim)] uppercase font-semibold">Load (W)</label>
@@ -807,10 +811,9 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.6rem] text-[var(--text-dim)] uppercase font-semibold">Quantity</label>
-                <input type="number" min="1" max="50" value={newAppliance.quantity || ''}
-                  onChange={e => setNewAppliance({ ...newAppliance, quantity: Number(e.target.value) })}
-                  className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full"
-                  placeholder="e.g. 3" />
+                <input type="number" min="1" max="10" value={newAppliance.quantity || 1}
+                  onChange={e => setNewAppliance({ ...newAppliance, quantity: Math.max(1, Math.min(10, Number(e.target.value))) })}
+                  className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.6rem] text-[var(--text-dim)] uppercase font-semibold">Priority</label>
@@ -838,11 +841,10 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
 
 // ─── Remote Tab ────────────────────────────────────────────────────────────────
 
-function RemoteTab({ state, handleModeChange, toggleAppliance }: any) {
+function RemoteTab({ state, handleModeChange, toggleAppliance, updateQuantity }: any) {
   return (
     <div className="h-full overflow-y-auto custom-scrollbar p-4">
       <div className="max-w-md mx-auto flex flex-col gap-4">
-
         <SideCard title="Remote Terminal">
           <div className="p-4">
             <div className="flex items-center justify-between bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4 mb-4">
@@ -862,21 +864,28 @@ function RemoteTab({ state, handleModeChange, toggleAppliance }: any) {
             </div>
 
             <div className="flex flex-col gap-2 mb-4">
-              {state.appliances.map((app: Appliance) => (
-                <div key={app.id} className="flex items-center justify-between bg-[var(--bg)] border border-[var(--border)] rounded-xl px-4 py-3">
-                  <div>
-                    <div className="text-sm font-medium">{app.name}</div>
-                    <div className="text-[0.7rem] text-[var(--text-dim)]">{app.watts}W</div>
+              {state.appliances.map((app: Appliance) => {
+                const qty = app.quantity ?? 1;
+                return (
+                  <div key={app.id} className="flex items-center justify-between bg-[var(--bg)] border border-[var(--border)] rounded-xl px-4 py-3">
+                    <div>
+                      <div className="text-sm font-medium">{app.name}</div>
+                      <div className="text-[0.7rem] text-[var(--text-dim)]">
+                        {qty > 1 ? `${app.watts * qty}W (×${qty})` : `${app.watts}W`}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <QuantityStepper quantity={qty} disabled={app.isAutoCut} onChange={q => updateQuantity(app.id, q)} />
+                      <Toggle isOn={app.isOn && !app.isAutoCut} disabled={app.isAutoCut} onClick={() => toggleAppliance(app.id, true)} />
+                    </div>
                   </div>
-                  <Toggle isOn={app.isOn && !app.isAutoCut} disabled={app.isAutoCut} onClick={() => toggleAppliance(app.id, true)} />
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <ModeSwitcher mode={state.mode} onChange={handleModeChange} />
           </div>
         </SideCard>
-
       </div>
     </div>
   );
@@ -893,7 +902,6 @@ function AITab({ messages, isTyping, onAsk }: any) {
 
   return (
     <div className="h-full flex flex-col p-4 gap-3 max-w-3xl mx-auto">
-
       <SideCard title="GridAI Console" className="flex-1 overflow-hidden">
         <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-3">
           {messages.length === 0 && (
@@ -908,7 +916,6 @@ function AITab({ messages, isTyping, onAsk }: any) {
           ))}
           {isTyping && <div className="text-[0.75rem] text-[var(--text-dim)] animate-pulse">Analyzing grid metrics…</div>}
         </div>
-
         <div className="p-4 border-t border-[var(--border)] shrink-0">
           <form onSubmit={e => { e.preventDefault(); onAsk(input); setInput(''); }} className="flex gap-2">
             <input value={input} onChange={e => setInput(e.target.value)}
@@ -928,7 +935,6 @@ function AITab({ messages, isTyping, onAsk }: any) {
           </div>
         </div>
       </SideCard>
-
     </div>
   );
 }
@@ -939,7 +945,6 @@ function AboutTab() {
   return (
     <div className="h-full overflow-y-auto custom-scrollbar p-4">
       <div className="max-w-4xl mx-auto flex flex-col gap-4">
-
         <SideCard title="Project">
           <div className="p-6">
             <h1 className="text-2xl font-black mb-3">SmartGrid</h1>
@@ -948,7 +953,6 @@ function AboutTab() {
             </p>
           </div>
         </SideCard>
-
         <div className="grid grid-cols-2 gap-4">
           <SideCard title="Core Features">
             <div className="p-4 grid grid-cols-2 gap-2">
@@ -959,7 +963,6 @@ function AboutTab() {
               ))}
             </div>
           </SideCard>
-
           <SideCard title="Hardware Context">
             <div className="p-4">
               <p className="text-[0.8rem] text-[var(--text-dim)] leading-relaxed">
@@ -968,12 +971,10 @@ function AboutTab() {
             </div>
           </SideCard>
         </div>
-
         <div className="text-center py-8 border-t border-[var(--border)] opacity-40">
           <p className="text-[0.6rem] font-mono uppercase tracking-[0.2em]">Electronics Engineering Division</p>
           <h2 className="text-sm font-black tracking-tight mt-1">PSIT KANPUR UNIVERSITY</h2>
         </div>
-
       </div>
     </div>
   );
