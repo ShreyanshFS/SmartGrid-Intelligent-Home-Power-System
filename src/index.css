@@ -15,13 +15,13 @@ body {
 }
 
 :root {
-  --bg: #09090b;
-  --surface: #111113;
-  --surface2: #1c1c1f;
-  --border: #27272a;
-  --border-hover: #3f3f46;
-  --text: #fafafa;
-  --text-dim: #71717a;
+  --bg: #020617;
+  --surface: #0f172a;
+  --surface2: #1e293b;
+  --border: #334155;
+  --border-hover: #475569;
+  --text: #f8fafc;
+  --text-dim: #94a3b8;
   --accent: #3b82f6;
   --success: #10b981;
   --warning: #f59e0b;
@@ -32,6 +32,14 @@ body {
   body {
     @apply bg-[var(--bg)] text-[var(--text)] antialiased;
     font-family: var(--font-sans);
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.08) 0px, transparent 40%),
+      radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.05) 0px, transparent 40%),
+      radial-gradient(at 50% 100%, rgba(59, 130, 246, 0.03) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+  ::selection {
+    @apply bg-blue-500/30 text-blue-100;
   }
 }
 

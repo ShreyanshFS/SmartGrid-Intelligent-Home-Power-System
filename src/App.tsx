@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Zap, Send, Activity, Smartphone, CheckCircle2, Download, Sun, Wifi } from 'lucide-react';
+import { Zap, Send, Activity, Smartphone, CheckCircle2, Download, Sun, Wifi, Github, Maximize2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -190,34 +190,108 @@ const Chip = ({ label, value, accent }: { label: string; value: string; accent?:
 );
 
 const HistoryChart = ({ history }: { history: EnergySample[] }) => {
-  const width = 260, height = 120, pad = 10;
+  const [isMagnified, setIsMagnified] = useState(false);
+  const width = 260, height = 120, padLeft = 28, padRight = 5, padTop = 10, padBottom = 15;
   const points = history.length ? history : [{
     id: 'empty', time: '', batteryPercent: 85, activeLoad: 0,
     chargingWatts: 0, netWatts: 0, mode: 'Normal' as const
   }];
-  const maxLoad = Math.max(100, ...points.map(p => Math.max(p.activeLoad, p.chargingWatts)));
-  const xFor = (i: number) => pad + (i / Math.max(1, points.length - 1)) * (width - pad * 2);
-  const batteryPath = points.map((p, i) => {
-    const y = pad + (1 - p.batteryPercent / 100) * (height - pad * 2);
-    return `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
-  const loadPath = points.map((p, i) => {
-    const y = pad + (1 - p.activeLoad / maxLoad) * (height - pad * 2);
-    return `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
+  
+  const maxLoad = Math.max(500, ...points.map(p => Math.max(p.activeLoad, p.chargingWatts)));
+  
+  const xFor = (i: number) => padLeft + (i / Math.max(1, points.length - 1)) * (width - padLeft - padRight);
+  const yForBattery = (pct: number) => padTop + (1 - pct / 100) * (height - padTop - padBottom);
+  const yForLoad = (watts: number) => padTop + (1 - watts / maxLoad) * (height - padTop - padBottom);
+
+  const batteryPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${yForBattery(p.batteryPercent).toFixed(1)}`).join(' ');
+  const loadPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${yForLoad(p.activeLoad).toFixed(1)}`).join(' ');
+
+  const batteryArea = `${batteryPath} L ${xFor(points.length - 1)} ${height - padBottom} L ${padLeft} ${height - padBottom} Z`;
+  const loadArea = `${loadPath} L ${xFor(points.length - 1)} ${height - padBottom} L ${padLeft} ${height - padBottom} Z`;
+
+  const ChartSvg = ({ isLarge }: { isLarge?: boolean }) => (
+    <svg viewBox={`0 0 ${width} ${height}`} className={`w-full ${isLarge ? 'h-[400px]' : 'h-28'} overflow-visible`}>
+      {/* Y-Axis Numerical Labels */}
+      <text x={padLeft - 6} y={yForBattery(100) + 3} textAnchor="end" className={`${isLarge ? 'text-[5px]' : 'text-[7px]'} fill-[var(--text-dim)] font-mono`}>100</text>
+      <text x={padLeft - 6} y={yForBattery(50) + 3} textAnchor="end" className={`${isLarge ? 'text-[5px]' : 'text-[7px]'} fill-[var(--text-dim)] font-mono`}>50</text>
+      <text x={padLeft - 6} y={yForBattery(0) + 3} textAnchor="end" className={`${isLarge ? 'text-[5px]' : 'text-[7px]'} fill-[var(--text-dim)] font-mono`}>0</text>
+
+      {/* Grid lines */}
+      {[25, 50, 75].map(v => (
+        <line key={v} x1={padLeft} y1={yForBattery(v)} x2={width - padRight} y2={yForBattery(v)} 
+              stroke="var(--border)" strokeDasharray="2,2" opacity="0.3" />
+      ))}
+      
+      {/* Baseline */}
+      <line x1={padLeft} y1={height - padBottom} x2={width - padRight} y2={height - padBottom} stroke="var(--border)" />
+      <line x1={padLeft} y1={padTop} x2={padLeft} y2={height - padBottom} stroke="var(--border)" />
+
+      {/* Load Area & Path */}
+      <path d={loadArea} fill="var(--warning)" fillOpacity="0.05" />
+      <path d={loadPath} fill="none" stroke="var(--warning)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+
+      {/* Battery Area & Path */}
+      <path d={batteryArea} fill="var(--success)" fillOpacity="0.1" />
+      <path d={batteryPath} fill="none" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+
   return (
-    <div className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-3">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-28">
-        <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke="var(--border)" />
-        <line x1={pad} y1={pad} x2={pad} y2={height - pad} stroke="var(--border)" />
-        <path d={loadPath} fill="none" stroke="var(--warning)" strokeWidth="2" strokeLinecap="round" />
-        <path d={batteryPath} fill="none" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" />
-      </svg>
-      <div className="flex justify-between text-[0.65rem] text-[var(--text-dim)]">
-        <span className="text-[var(--success)]">Battery</span>
-        <span className="text-[var(--warning)]">Load</span>
+    <>
+      <div className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-3 relative group">
+        <button onClick={() => setIsMagnified(true)} 
+          className="absolute top-2 right-2 p-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-lg opacity-0 group-hover:opacity-100 transition-all hover:bg-[var(--bg)] text-[var(--text-dim)] hover:text-white z-10"
+          title="Magnify Chart">
+          <Maximize2 className="w-3.5 h-3.5" />
+        </button>
+        <ChartSvg />
+        <div className="flex justify-between text-[0.65rem] text-[var(--text-dim)] mt-2">
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
+            <span>Battery (%)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-[var(--warning)]" />
+            <span>Load (W)</span>
+          </div>
+        </div>
       </div>
-    </div>
+
+      <AnimatePresence>
+        {isMagnified && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 md:p-12">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+              className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl w-full max-w-6xl overflow-hidden flex flex-col shadow-2xl">
+              <div className="flex items-center justify-between px-8 py-5 border-b border-[var(--border)]">
+                <div>
+                  <h3 className="font-bold text-base text-white">System Energy Trends</h3>
+                  <p className="text-[0.7rem] text-[var(--text-dim)] uppercase tracking-widest mt-0.5">High Resolution Analysis</p>
+                </div>
+                <button onClick={() => setIsMagnified(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                  <X className="w-6 h-6 text-[var(--text-dim)]" />
+                </button>
+              </div>
+              <div className="p-10 flex-1 flex flex-col gap-8">
+                <div className="flex-1 min-h-0">
+                  <ChartSvg isLarge />
+                </div>
+                <div className="flex justify-center gap-12 border-t border-[var(--border)] pt-8">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-[var(--success)] shadow-[0_0_10px_var(--success)]" />
+                    <span className="text-sm font-medium text-white">Battery Level (%)</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-[var(--warning)] shadow-[0_0_10px_var(--warning)]" />
+                    <span className="text-sm font-medium text-white">Active Load (Watts)</span>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 };
 
@@ -265,9 +339,10 @@ export default function App() {
   const handleModeChange = (newMode: SystemState['mode']) => {
     updateState(prev => ({
       ...prev, mode: newMode,
-      appliances: prev.appliances.map(a =>
-        newMode !== 'Normal' ? { ...a, isAutoCut: !a.isEssential } : { ...a, isAutoCut: false }
-      )
+      appliances: prev.appliances.map(a => ({
+        ...a,
+        isAutoCut: newMode === 'Ultra' ? !a.isEssential : (newMode === 'Power Saving' ? (!a.isEssential && a.watts >= 200) : false)
+      }))
     }));
     addNotification(`Mode set to ${newMode}.`);
   };
@@ -318,7 +393,10 @@ export default function App() {
     if (target !== mode) {
       updateState(prev => ({
         ...prev, mode: target,
-        appliances: prev.appliances.map(a => ({ ...a, isAutoCut: target !== 'Normal' && !a.isEssential }))
+        appliances: prev.appliances.map(a => ({
+          ...a,
+          isAutoCut: target === 'Ultra' ? !a.isEssential : (target === 'Power Saving' ? (!a.isEssential && a.watts >= 200) : false)
+        }))
       }));
       addNotification(`Auto-switched to ${target} mode.`, 'warning');
     }
@@ -363,12 +441,23 @@ export default function App() {
       const ai = new GoogleGenAI({ apiKey });
       const result = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        config: { systemInstruction: `SmartGrid AI. Battery: ${state.batteryPercent.toFixed(1)}%, Mode: ${state.mode}, Load: ${activeLoad}W, Runtime: ${estimatedRuntime.toFixed(1)}h.` },
+        config: { systemInstruction: `SmartGrid AI Assistant. 
+Battery: ${state.batteryPercent.toFixed(1)}%, Mode: ${state.mode}, Load: ${activeLoad}W, Runtime: ${estimatedRuntime.toFixed(1)}h.
+Respond with short, concise, and helpful bullet points. Use bold for emphasis and clear headers. Prioritize urgency if battery is low.` },
         contents: question
       });
       setChatMessages(prev => [...prev, { role: 'assistant', text: result.text || 'No response.' }]);
-    } catch (e) {
-      setChatMessages(prev => [...prev, { role: 'assistant', text: `Error: ${(e as any).message}` }]);
+    } catch (e: any) {
+      let msg = 'The AI is currently busy or unavailable. Please try again in a moment.';
+      try {
+        const err = JSON.parse(e.message);
+        if (err.error?.code === 503) msg = 'Model is at capacity. Retrying usually helps!';
+        else if (err.error?.code === 429) msg = 'Rate limit reached. Please wait a bit.';
+        else msg = `Connection Error: ${err.error?.message || e.message}`;
+      } catch {
+        msg = `Error: ${e.message || 'Unknown connection issue'}`;
+      }
+      setChatMessages(prev => [...prev, { role: 'assistant', text: msg }]);
     } finally { setIsTyping(false); }
   }
 
@@ -377,11 +466,11 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       <nav className="h-14 border-b border-[var(--border)] flex items-center px-5 justify-between bg-[var(--bg)] shrink-0 z-10">
-        <div className="flex items-center gap-2.5 font-bold text-base tracking-tight">
-          <div className="w-7 h-7 bg-[var(--accent)] rounded-lg flex items-center justify-center shrink-0">
-            <Zap className="text-white w-4 h-4 fill-white" />
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-gradient-to-br from-[var(--accent)] to-[#1e40af] rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-[var(--accent)]/20 border border-white/10">
+            <Zap className="text-white w-4.5 h-4.5 fill-white/20" />
           </div>
-          SmartGrid
+          <span className="text-base font-black tracking-tighter text-white">SMARTGRID</span>
         </div>
         <div className="flex gap-1 bg-[var(--surface)] p-1 rounded-lg border border-[var(--border)]">
           {tabs.map(tab => (
@@ -393,9 +482,9 @@ export default function App() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1.5 text-[0.65rem] font-mono text-[var(--success)] font-semibold">
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-full text-[0.6rem] font-mono text-[var(--success)] font-bold uppercase tracking-tight">
           <span className={`w-1.5 h-1.5 rounded-full bg-[var(--success)] ${state.isSimulationRunning ? 'animate-pulse' : ''}`} />
-          LIVE SYNC — 3S
+          Telemetry Active — {state.usageHistory.length} Samples
         </div>
       </nav>
 
@@ -500,11 +589,41 @@ function OverviewTab({ state, activeLoad, runtime, toggleAppliance, updateQuanti
           {state.isSimulationRunning ? '⏹ Stop Simulation' : '▶ Start Simulation'}
         </button>
 
-        <SideCard title="AI Assistant">
-          <div className="p-4 flex flex-col gap-3">
-            <p className="text-[0.75rem] text-[var(--text-dim)] leading-relaxed italic">
-              Battery at {Math.round(state.batteryPercent)}%. Load is {activeLoad}W. {state.mode !== 'Normal' ? `${state.mode} mode active.` : 'System nominal.'}
-            </p>
+        <SideCard title="AI Assistant Status">
+          <div className="p-4 flex flex-col gap-4">
+            <div className="flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${state.batteryPercent > 20 ? 'bg-blue-500/10' : 'bg-red-500/10'}`}>
+                <Activity className={`w-5 h-5 ${state.batteryPercent > 20 ? 'text-[var(--accent)]' : 'text-[var(--danger)]'}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`text-[0.6rem] font-bold px-1.5 py-0.5 rounded border ${
+                    state.mode === 'Normal' ? 'bg-green-500/10 text-[var(--success)] border-green-500/20' : 
+                    state.mode === 'Power Saving' ? 'bg-yellow-500/10 text-[var(--warning)] border-yellow-500/20' : 
+                    'bg-red-500/10 text-[var(--danger)] border-red-500/20'
+                  }`}>
+                    {state.mode.toUpperCase()}
+                  </span>
+                </div>
+                <p className="text-[0.7rem] text-[var(--text-dim)] leading-relaxed">
+                  Battery at {Math.round(state.batteryPercent)}% with {activeLoad}W load. {
+                    state.batteryPercent < 10 ? 'Critical depletion detected.' : 
+                    state.mode !== 'Normal' ? 'Optimization active.' : 'System performing nominally.'
+                  }
+                </p>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[0.6rem] text-[var(--text-dim)] uppercase font-bold tracking-wider">
+                <span>Quick Insight</span>
+                <span className="text-[var(--accent)]">Live</span>
+              </div>
+              <div className="bg-[var(--bg)] border border-[var(--border)] rounded-lg p-2.5 text-[0.65rem] leading-relaxed text-white font-medium italic">
+                "{state.batteryPercent < 20 ? 'Immediate load shedding recommended to extend runtime.' : 
+                  activeLoad > 1000 ? 'High load detected. Consider turning off heavy appliances.' :
+                  'System currently optimized for existing battery levels.'}"
+              </div>
+            </div>
           </div>
         </SideCard>
       </aside>
@@ -893,6 +1012,52 @@ function RemoteTab({ state, handleModeChange, toggleAppliance, updateQuantity }:
 
 // ─── AI Tab ────────────────────────────────────────────────────────────────────
 
+const MarkdownText = ({ text }: { text: string }) => {
+  const parseBold = (t: string) => {
+    // Match ***bold-italic***, **bold**, or *italic*
+    const parts = t.split(/(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)/g);
+    return parts.map((part, pi) => {
+      if (part.startsWith('***') && part.endsWith('***')) return <strong key={pi} className="font-black text-white italic">{part.slice(3, -3)}</strong>;
+      if (part.startsWith('**') && part.endsWith('**')) return <strong key={pi} className="font-bold text-white">{part.slice(2, -2)}</strong>;
+      if (part.startsWith('*') && part.endsWith('*')) return <em key={pi} className="italic opacity-90">{part.slice(1, -1)}</em>;
+      return part;
+    });
+  };
+
+  const lines = text.split('\n');
+  return (
+    <>
+      {lines.map((line, i) => {
+        let content: any = line;
+        
+        // Handle Headers (###)
+        if (line.startsWith('### ')) {
+          content = <div key={i} className="text-[0.95rem] font-bold mt-4 mb-1.5 text-[var(--accent)]">{parseBold(line.replace('### ', ''))}</div>;
+        } 
+        // Handle Bullets (* )
+        else if (line.trim().startsWith('* ')) {
+          content = (
+            <div key={i} className="flex gap-2 ml-1 my-0.5">
+              <span className="text-[var(--accent)] mt-1">•</span>
+              <span className="flex-1">{parseBold(line.trim().slice(2))}</span>
+            </div>
+          );
+        }
+        // Handle Regular lines
+        else {
+          content = (
+            <div key={i} className={line.trim() === '' ? 'h-2' : 'my-0.5'}>
+              {parseBold(line)}
+            </div>
+          );
+        }
+        
+        return content;
+      })}
+    </>
+  );
+};
+
 function AITab({ messages, isTyping, onAsk }: any) {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -911,7 +1076,9 @@ function AITab({ messages, isTyping, onAsk }: any) {
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`p-3 rounded-xl text-[0.85rem] max-w-[85%] leading-relaxed ${
                 m.role === 'user' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg)] border border-[var(--border)]'
-              }`}>{m.text}</div>
+              }`}>
+                {m.role === 'user' ? m.text : <MarkdownText text={m.text} />}
+              </div>
             </div>
           ))}
           {isTyping && <div className="text-[0.75rem] text-[var(--text-dim)] animate-pulse">Analyzing grid metrics…</div>}
@@ -947,10 +1114,20 @@ function AboutTab() {
       <div className="max-w-4xl mx-auto flex flex-col gap-4">
         <SideCard title="Project">
           <div className="p-6">
-            <h1 className="text-2xl font-black mb-3">SmartGrid</h1>
-            <p className="text-[var(--text-dim)] text-sm leading-relaxed">
-              An integrated intelligence layer for decentralized home energy independence. Optimized for high-durability backup scenarios with real-time monitoring and smart mode switching.
-            </p>
+            <h1 className="text-3xl font-black mb-4 bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">SmartGrid</h1>
+            <div className="space-y-4">
+              <p className="text-[var(--text-dim)] text-sm leading-relaxed">
+                SmartGrid is a high-performance intelligent energy management system designed to empower homeowners with complete energy independence. 
+                By combining real-time telemetry with predictive load-shedding algorithms, it ensures that your critical appliances stay powered during outages while optimizing for battery longevity and cost efficiency.
+              </p>
+              <p className="text-[var(--text-dim)] text-sm leading-relaxed border-l-2 border-[var(--accent)] pl-4 italic">
+                "Our mission is to bridge the gap between complex hardware systems and intuitive user-centric control, making decentralized energy management accessible to everyone."
+              </p>
+              <p className="text-[var(--text-dim)] text-sm leading-relaxed">
+                This platform serves as a central nervous system for your home power, integrating everything from solar generation and grid charging to remote appliance control and AI-driven efficiency reports. 
+                Built for stability and speed, it provides a seamless transition from traditional power monitoring to active, intelligent energy conservation.
+              </p>
+            </div>
           </div>
         </SideCard>
         <div className="grid grid-cols-2 gap-4">
@@ -966,14 +1143,47 @@ function AboutTab() {
           <SideCard title="Hardware Context">
             <div className="p-4">
               <p className="text-[0.8rem] text-[var(--text-dim)] leading-relaxed">
-                System architecture designed for ESP32 / Sonoff integration. Live prototype validated at PSIT Kanpur Lab environment. MQTT-ready gateway for real relay boards.
+                System architecture designed for ESP32 / Sonoff integration. Live prototype validated at SmartGrid Lab environment. MQTT-ready gateway for real relay boards.
               </p>
             </div>
           </SideCard>
-        </div>
+        <SideCard title="About the Developer">
+          <div className="p-4 flex flex-col gap-4">
+            <p className="text-sm text-[var(--text-dim)] leading-relaxed">
+              I am Shreyansh, a developer passionate about building intelligent solutions for everyday problems. 
+              SmartGrid was born out of the need to visualize and optimize home energy usage during power outages. 
+              My goal is to bridge the gap between this simulation and real-time hardware integration like ESP32 and MQTT.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <a href="https://github.com/ShreyanshFS/SmartGrid-Intelligent-Home-Power-System" target="_blank" rel="noopener noreferrer"
+                 className="flex items-center gap-2 bg-[#24292e] text-white px-4 py-2 rounded-xl text-[0.75rem] font-bold hover:bg-[#2f363d] transition-colors border border-white/10">
+                <Github className="w-4 h-4" /> View on GitHub
+              </a>
+              <a href="mailto:Shreyanshdwivedi15@gmail.com"
+                 className="flex items-center gap-2 bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-[0.75rem] font-bold hover:opacity-90 transition-opacity">
+                <Send className="w-4 h-4" /> Email Me
+              </a>
+            </div>
+          </div>
+        </SideCard>
+
+        <SideCard title="Developer Contact">
+          <div className="p-4 flex flex-col gap-2">
+            <div className="flex items-center gap-3 bg-[var(--bg)] border border-[var(--border)] p-3 rounded-xl max-w-sm">
+              <div className="w-8 h-8 rounded-lg bg-[var(--accent)] flex items-center justify-center text-white shrink-0">
+                <Send className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-[0.6rem] text-[var(--text-dim)] uppercase font-bold tracking-wider">Direct Reach</div>
+                <div className="text-[0.8rem] font-medium text-white">Shreyanshdwivedi15@gmail.com</div>
+              </div>
+            </div>
+          </div>
+        </SideCard>
+      </div>
         <div className="text-center py-8 border-t border-[var(--border)] opacity-40">
-          <p className="text-[0.6rem] font-mono uppercase tracking-[0.2em]">Electronics Engineering Division</p>
-          <h2 className="text-sm font-black tracking-tight mt-1">PSIT KANPUR UNIVERSITY</h2>
+          <p className="text-[0.6rem] font-mono uppercase tracking-[0.2em]">Home Power Control System </p>
+          <h2 className="text-sm font-black tracking-tight mt-1">SMARTGRID</h2>
         </div>
       </div>
     </div>
