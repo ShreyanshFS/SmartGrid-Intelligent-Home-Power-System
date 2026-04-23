@@ -588,7 +588,7 @@ Respond with short, concise, and helpful bullet points. Use bold for emphasis an
               <ControlTab state={state} updateState={updateState}
                 handleModeChange={handleModeChange} addNotification={addNotification}
                 sendEmailAlert={sendEmailAlert} simulatedKwh={simulatedKwh} estimatedCost={estimatedCost}
-                newAppliance={newAppliance} setNewAppliance={setNewAppliance} />
+                newAppliance={newAppliance} setNewAppliance={setNewAppliance} authUser={authUser} />
             )}
             {activeTab === 'Remote Control' && (
               <RemoteTab state={state} handleModeChange={handleModeChange}
@@ -836,7 +836,10 @@ function OverviewTab({ state, activeLoad, runtime, toggleAppliance, updateQuanti
 
 // ─── Control Tab ───────────────────────────────────────────────────────────────
 
-function ControlTab({ state, updateState, handleModeChange, addNotification, sendEmailAlert, simulatedKwh, estimatedCost, newAppliance, setNewAppliance }: any) {
+function ControlTab({ state, updateState, handleModeChange, addNotification, sendEmailAlert, simulatedKwh, estimatedCost, newAppliance, setNewAppliance, authUser }: any) {
+  const [alertEmailMode, setAlertEmailMode] = useState<'login' | 'custom'>(state.alertEmail && state.alertEmail !== authUser?.email ? 'custom' : 'login');
+
+  const effectiveAlertEmail = alertEmailMode === 'login' ? (authUser?.email || '') : state.alertEmail;
   const toggleSim = () => {
     updateState((prev: SystemState) => ({ ...prev, isSimulationRunning: !prev.isSimulationRunning }));
     addNotification(`Simulation ${!state.isSimulationRunning ? 'STARTED' : 'STOPPED'}.`);
@@ -987,11 +990,70 @@ function ControlTab({ state, updateState, handleModeChange, addNotification, sen
               </div>
               <Toggle isOn={state.isEmailAlertsEnabled} onClick={() => updateState((p: SystemState) => ({ ...p, isEmailAlertsEnabled: !p.isEmailAlertsEnabled }))} />
             </div>
-            <input type="email" value={state.alertEmail}
-              onChange={e => updateState((p: SystemState) => ({ ...p, alertEmail: e.target.value }))}
-              className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full"
-              placeholder="recipient@example.com" />
-            <button onClick={() => sendEmailAlert()} className="w-full bg-[var(--accent)] text-white rounded-lg py-2 text-xs font-bold uppercase tracking-wider">
+
+            {/* Email recipient choice */}
+            <div className="flex flex-col gap-3">
+              <div className="text-[0.6rem] text-[var(--text-dim)] uppercase font-semibold tracking-wider">Recipient Email</div>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setAlertEmailMode('login');
+                    updateState((p: SystemState) => ({ ...p, alertEmail: authUser?.email || '' }));
+                  }}
+                  className={`flex items-center gap-3 bg-[var(--bg)] border rounded-xl px-4 py-3 transition-all text-left ${
+                    alertEmailMode === 'login' ? 'border-[var(--accent)] shadow-[0_0_0_1px_var(--accent)]' : 'border-[var(--border)] hover:border-[var(--border-hover)]'
+                  }`}
+                >
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                    alertEmailMode === 'login' ? 'border-[var(--accent)]' : 'border-[var(--border)]'
+                  }`}>
+                    {alertEmailMode === 'login' && <motion.div layoutId="alertRadio" className="w-2 h-2 rounded-full bg-[var(--accent)]" />}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[0.75rem] font-semibold">Use my login email</div>
+                    <div className="text-[0.65rem] text-[var(--text-dim)] truncate">{authUser?.email || 'Not available'}</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setAlertEmailMode('custom');
+                    if (state.alertEmail === authUser?.email) {
+                      updateState((p: SystemState) => ({ ...p, alertEmail: '' }));
+                    }
+                  }}
+                  className={`flex items-center gap-3 bg-[var(--bg)] border rounded-xl px-4 py-3 transition-all text-left ${
+                    alertEmailMode === 'custom' ? 'border-[var(--accent)] shadow-[0_0_0_1px_var(--accent)]' : 'border-[var(--border)] hover:border-[var(--border-hover)]'
+                  }`}
+                >
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                    alertEmailMode === 'custom' ? 'border-[var(--accent)]' : 'border-[var(--border)]'
+                  }`}>
+                    {alertEmailMode === 'custom' && <motion.div layoutId="alertRadio" className="w-2 h-2 rounded-full bg-[var(--accent)]" />}
+                  </div>
+                  <div>
+                    <div className="text-[0.75rem] font-semibold">Use a different email</div>
+                    <div className="text-[0.65rem] text-[var(--text-dim)]">Enter a custom recipient address</div>
+                  </div>
+                </button>
+              </div>
+
+              {alertEmailMode === 'custom' && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                  <input type="email" value={state.alertEmail}
+                    onChange={e => updateState((p: SystemState) => ({ ...p, alertEmail: e.target.value }))}
+                    className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full"
+                    placeholder="recipient@example.com" />
+                </motion.div>
+              )}
+            </div>
+
+            <button onClick={() => {
+              if (alertEmailMode === 'login') {
+                updateState((p: SystemState) => ({ ...p, alertEmail: authUser?.email || '' }));
+              }
+              sendEmailAlert();
+            }} className="w-full bg-[var(--accent)] text-white rounded-lg py-2 text-xs font-bold uppercase tracking-wider">
               Send Email Alert
             </button>
           </div>
