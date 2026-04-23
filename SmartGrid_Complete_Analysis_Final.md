@@ -41,21 +41,33 @@ SmartGrid solves this with a **centralized control dashboard** featuring real-ti
 ### 2.1 Overall Architecture
 
 ```
-┌────────────────────────────────────────────┐
-│            CLIENT (Browser)                │
-│  ┌───────────────────────────────────────┐ │
-│  │  React 19 SPA (TypeScript)            │ │
-│  │  Tabs: Overview | Control | Remote    │ │
-│  │        AI Assistant | About           │ │
-│  │                                       │ │
-│  │  State: React useState + localStorage │ │
-│  └────────────┬──────────────────────────┘ │
-│               │ fetch POST /api/send-alert │
-└───────────────┼────────────────────────────┘
+┌────────────────────────────────────────────────┐
+│            CLIENT (Browser)                    │
+│  ┌──────────────────────────────────────────┐  │
+│  │  React 19 SPA (TypeScript)               │  │
+│  │  Auth Gate: LoginPage ↔ Dashboard        │  │
+│  │  Tabs: Overview | Control | Remote       │  │
+│  │        AI Assistant | About              │  │
+│  │                                          │  │
+│  │  State: React useState + API sync (3s)   │  │
+│  └────────────┬─────────────────────────────┘  │
+│               │ JWT Bearer Token                │
+│               │ /api/auth/* /api/state/*        │
+│               │ /api/send-alert                 │
+└───────────────┼─────────────────────────────────┘
                 ▼
         ┌───────────────┐      SMTP/TLS
         │ Express Server│─────────────────▶ Gmail SMTP
-        │ (server.ts)   │                   (email to recipient)
+        │ (server.ts)   │
+        │ JWT + bcryptjs │
+        └───────┬───────┘
+                │
+                ▼
+        ┌───────────────┐
+        │ SQLite (sql.js)│
+        │ smartgrid.db   │
+        │ users,         │
+        │ user_states    │
         └───────────────┘
 ```
 
@@ -70,9 +82,11 @@ SmartGrid solves this with a **centralized control dashboard** featuring real-ti
 | Animation | Motion (Framer Motion) | 12 | Spring-based UI animations |
 | Icons | Lucide React | 0.546 | Icon library |
 | Backend | Express | 4 | HTTP server + API |
+| Database | SQLite via sql.js | 1.12 | User accounts + state persistence |
+| Authentication | JWT + bcryptjs | — | Token auth + password hashing |
 | Email | Raw SMTP (Node.js net/tls) | — | STARTTLS email sending |
 | AI Integration | Google GenAI SDK | 1.29 | Optional Gemini AI assistant |
-| State Persistence | Browser localStorage | — | Client-side storage |
+| State Persistence | SQLite DB (per-user) | — | API-synced server-side storage |
 | Runtime | tsx | 4.21 | TypeScript execution for server |
 
 ### 2.3 Why These Technologies?
@@ -81,10 +95,11 @@ SmartGrid solves this with a **centralized control dashboard** featuring real-ti
 - **Vite** — Near-instant HMR, native ESM; far faster than webpack
 - **TypeScript** — Catches bugs at compile time for complex state
 - **Tailwind CSS 4** — Rapid styling with utility classes + CSS variables
-- **Express** — Lightweight; perfect for a single API endpoint
+- **Express** — Lightweight; serves auth, state, and alert APIs
+- **sql.js** — Pure WASM SQLite; no native compilation or Python needed
+- **bcryptjs + JWT** — Industry-standard auth; pure JS, no native deps
 - **Raw SMTP** — No external dependency; demonstrates protocol-level knowledge
 - **Motion** — Physics-based animations for professional feel
-- **localStorage** — Zero-config persistence for prototyping
 
 ---
 
@@ -93,35 +108,42 @@ SmartGrid solves this with a **centralized control dashboard** featuring real-ti
 ### 3.1 Folder Structure
 
 ```
+db/
+└── database.ts      # SQLite init, tables, query helpers (sql.js)
+
 src/
-├── App.tsx          # ALL application logic (~1192 lines)
+├── App.tsx          # Dashboard logic, auth gate, API state sync
+├── LoginPage.tsx    # Login/Register page with glassmorphism UI
 ├── main.tsx         # React entry point
 ├── index.css        # Tailwind, CSS variables, global styles
 └── vite-env.d.ts    # Vite environment type declarations
+
+server.ts            # Express: auth routes, state API, SMTP alerts
 ```
 
-### 3.2 Key Components (all in App.tsx)
+### 3.2 Key Components
 
-| Component | Purpose |
-|-----------|---------|
-| `App` (default export) | Root: state, tabs, simulation engine |
-| `OverviewTab` | Dashboard: battery gauge, appliance list, charts, log |
-| `ControlTab` | Simulation controls, thresholds, charging, CSV, device registration |
-| `RemoteTab` | Simplified mobile-style remote control |
-| `AITab` | Gemini-powered AI chat assistant |
-| `AboutTab` | Project info, developer contact |
-| `ArcGauge` | SVG arc battery percentage visualization |
-| `HistoryChart` | SVG line chart for battery & load trends |
-| `ModeSwitcher` | Animated 3-way toggle (Normal / Save / Ultra) |
-| `Toggle` | Animated on/off switch with spring physics |
-| `QuantityStepper` | ±1 stepper for appliance quantity |
-| `SideCard` | Reusable card container |
-| `Chip` | Small metric display (label + value) |
-| `MarkdownText` | Renders bold/italic/headers from AI responses |
+| Component | File | Purpose |
+|-----------|------|---------|
+| `LoginPage` | LoginPage.tsx | Tabbed login/register with glassmorphism, Framer Motion |
+| `App` (default export) | App.tsx | Root: auth gate, state, tabs, simulation engine |
+| `OverviewTab` | App.tsx | Dashboard: battery gauge, appliance list, charts, log |
+| `ControlTab` | App.tsx | Simulation controls, thresholds, charging, CSV, device registration |
+| `RemoteTab` | App.tsx | Simplified mobile-style remote control |
+| `AITab` | App.tsx | Gemini-powered AI chat assistant |
+| `AboutTab` | App.tsx | Project info, developer contact |
+| `ArcGauge` | App.tsx | SVG arc battery percentage visualization |
+| `HistoryChart` | App.tsx | SVG line chart for battery & load trends |
+| `ModeSwitcher` | App.tsx | Animated 3-way toggle (Normal / Save / Ultra) |
+| `Toggle` | App.tsx | Animated on/off switch with spring physics |
+| `QuantityStepper` | App.tsx | ±1 stepper for appliance quantity |
+| `SideCard` | App.tsx | Reusable card container |
+| `Chip` | App.tsx | Small metric display (label + value) |
+| `MarkdownText` | App.tsx | Renders bold/italic/headers from AI responses |
 
 ### 3.3 State Management
 
-**Approach:** React `useState` + `localStorage` — no Redux, no Context API.
+**Approach:** React `useState` + API-synced SQLite persistence (no Redux, no Context API).
 
 Central state type:
 
@@ -145,9 +167,11 @@ interface SystemState {
 ```
 
 **State Flow:**
-1. On mount → `hydrateState()` reads from `localStorage('sg-state')`
-2. Every mutation → `updateState()` calls `setState()` AND `localStorage.setItem()`
-3. Sync interval (3s) reads localStorage to sync across browser tabs
+1. On mount → check JWT token in `localStorage('sg-auth-token')` → call `GET /api/auth/me`
+2. If valid → call `GET /api/state/load` → hydrate state from DB (or fall back to defaults)
+3. If invalid/expired → clear token, show LoginPage
+4. Every mutation → `updateState()` calls `setState()`
+5. Every 3 seconds → `POST /api/state/save` sends full state to server DB
 
 ### 3.4 Routing
 
@@ -158,33 +182,40 @@ const tabs = ['Overview', 'Control', 'Remote Control', 'AI Assistant', 'About'];
 
 ### 3.5 Frontend-Backend Communication
 
-Only one API call exists — sending email alerts:
-```typescript
-fetch('/api/send-alert', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ recipient, batteryPercent, mode, appliances, ... })
-});
-```
+All API calls include `Authorization: Bearer <token>` for protected routes:
 
-All other data is entirely client-side.
+| Call | Purpose |
+|------|---------|
+| `POST /api/auth/register` | Create account → receive JWT |
+| `POST /api/auth/login` | Login → receive JWT |
+| `GET /api/auth/me` | Validate token on page load |
+| `POST /api/state/save` | Save dashboard state (every 3s) |
+| `GET /api/state/load` | Load state on login |
+| `POST /api/send-alert` | Send SMTP email alert |
 
 ---
 
 ## 4. BACKEND DEEP DIVE
 
-### 4.1 Server Structure (server.ts — 187 lines)
+### 4.1 Server Structure (server.ts)
 
-Express server with two roles:
+Express server with multiple roles:
 1. **Dev mode** — Hosts Vite middleware for HMR
 2. **Production** — Serves static `dist/` files
-3. **API** — `/api/send-alert` endpoint
+3. **Auth API** — Register, login, token validation
+4. **State API** — Save/load per-user dashboard state
+5. **Alert API** — `/api/send-alert` endpoint
 
-### 4.2 API Endpoint
+### 4.2 API Endpoints
 
 | Method | Route | Purpose | Auth |
 |--------|-------|---------|------|
-| POST | `/api/send-alert` | Send SMTP email alert report | None |
+| POST | `/api/auth/register` | Create user, return JWT | None |
+| POST | `/api/auth/login` | Validate creds, return JWT | None |
+| GET | `/api/auth/me` | Return user from token | Bearer |
+| POST | `/api/state/save` | Persist state JSON | Bearer |
+| GET | `/api/state/load` | Retrieve state JSON | Bearer |
+| POST | `/api/send-alert` | Send SMTP email alert | None |
 
 ### 4.3 SMTP Email Flow
 
@@ -208,6 +239,9 @@ The HTML email contains battery status, mode, load, and a color-coded appliance 
 - Payload size: limited to 128KB via `express.json({ limit: '128kb' })`
 
 ### 4.5 Security Measures
+- JWT authentication with 7-day expiry on protected routes
+- Passwords hashed with bcryptjs (12 salt rounds)
+- `authenticateToken` middleware validates Bearer tokens
 - `escapeHtml()` sanitizes all data in emails (XSS prevention)
 - SMTP credentials from environment variables
 - Payload size limiting
@@ -217,32 +251,50 @@ The HTML email contains battery status, mode, load, and a color-coded appliance 
 ## 5. DATABASE EXPLANATION
 
 ### 5.1 Type
-**No traditional database.** Uses browser `localStorage`.
+**SQLite** database via `sql.js` (pure WASM implementation — no native compilation needed).
+
+Stored at `./db/smartgrid.db`. Persisted to disk after every write.
 
 ### 5.2 Schema
-```
-Key: "sg-state"
-Value: JSON string of SystemState
+
+**users table:**
+```sql
+CREATE TABLE users (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  username      TEXT NOT NULL UNIQUE,
+  email         TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 ```
 
-Contains:
-- `appliances[]` — Appliance objects (id, name, watts, quantity, isEssential, isOn, isAutoCut)
-- `notifications[]` — max 50, LIFO order
-- `usageHistory[]` — max 36 samples, sliding window
+**user_states table:**
+```sql
+CREATE TABLE user_states (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL UNIQUE,
+  state_json  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+```
 
 ### 5.3 Relationships
 ```
-SystemState (1)
-  ├── has many → Appliance[] (14 default + user-added)
-  ├── has many → Notification[] (capped at 50)
-  └── has many → EnergySample[] (capped at 36)
+User (1)
+  └── has one → UserState (state_json contains:)
+        ├── appliances[] (14 default + user-added)
+        ├── notifications[] (capped at 50)
+        └── usageHistory[] (capped at 36)
 ```
 
 ### 5.4 Storage Flow
 ```
-Write: updateState() → setState() → localStorage.setItem(JSON.stringify)
-Read:  hydrateState(localStorage.getItem()) → JSON.parse → merge defaults
-Sync:  3s interval → read localStorage → compare → update if changed
+Register: bcryptjs.hash(password) → INSERT INTO users → JWT signed
+Login:    findUserByEmail() → bcryptjs.compare() → JWT signed
+Save:     POST /api/state/save → UPSERT user_states → persist to disk
+Load:     GET /api/state/load → SELECT state_json → parse → hydrate
+Sync:     3s interval → POST /api/state/save (automatic background)
 ```
 
 ---
@@ -289,15 +341,15 @@ User clicks "Start Simulation"
 
 | Aspect | Current | Production Fix |
 |--------|---------|---------------|
-| Storage | localStorage (5MB, single device) | PostgreSQL + user accounts |
-| Real-time | Polling (3s) | WebSocket / SSE |
+| Storage | SQLite (per-user, server-side) | PostgreSQL for high concurrency |
+| Auth | JWT + bcryptjs | OAuth2 / SSO integration |
+| Real-time | API polling (3s) | WebSocket / SSE |
 | Email | Synchronous SMTP | Message queue (Redis + Bull) |
-| Frontend | Monolithic 65KB file | Component splitting + lazy loading |
-| Multi-user | None | JWT auth + per-user state |
+| Frontend | Monolithic App.tsx | Component splitting + lazy loading |
 
 ### 7.2 Performance Bottlenecks
 1. **Monolithic App.tsx** — full re-render on state changes
-2. **Full JSON.stringify** on every state update
+2. **Full JSON state save** — entire state sent to server every 3s
 3. **Interval recreation** on appliance toggle (useEffect dep array)
 4. **36-sample history limit** — limits analytical value
 
@@ -305,10 +357,13 @@ User clicks "Start Simulation"
 
 | Concern | Status |
 |---------|--------|
-| No authentication | ⚠️ Open access |
+| User authentication | ✅ JWT + bcryptjs (12 rounds) |
+| Password storage | ✅ bcryptjs hashed, never stored plaintext |
+| Token expiry | ✅ 7-day JWT expiry, auto-logout |
 | No rate limiting | ⚠️ Email spam risk |
 | SMTP creds in .env.local | ✅ Not in git |
 | HTML escaping | ✅ Prevents XSS |
+| DB file in .gitignore | ✅ Not committed |
 | No HTTPS | ⚠️ Plaintext transport |
 | No CSRF protection | ⚠️ Cross-site risk |
 
@@ -328,10 +383,10 @@ User clicks "Start Simulation"
 > Every 4 seconds, the system calculates `netWatts = activeLoad - chargingInput`, then `delta = (netWatts / BATTERY_WH) × 100 × (4000 / 3,600,000)`. Battery percentage is decremented by this delta each tick.
 
 **Q4: Where is data stored?**
-> Browser localStorage under key `sg-state` as serialized JSON. No traditional database — a deliberate prototype choice.
+> User accounts and dashboard state are stored in a SQLite database (`smartgrid.db`) via sql.js. Each user has their own saved state. JWT tokens are stored in browser localStorage for session persistence.
 
 **Q5: How many API endpoints does the server have?**
-> One: `POST /api/send-alert`. It accepts battery/appliance data + recipient email and sends an HTML report via SMTP.
+> Six: `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` for authentication; `POST /api/state/save`, `GET /api/state/load` for per-user state persistence; and `POST /api/send-alert` for SMTP email alerts.
 
 ### 8.2 Intermediate Questions
 
@@ -341,8 +396,8 @@ User clicks "Start Simulation"
 **Q7: Why raw SMTP instead of Nodemailer?**
 > Demonstrates protocol-level knowledge (EHLO → STARTTLS → AUTH PLAIN → DATA → QUIT). Avoids heavy dependencies. Shows understanding valuable for embedded/IoT contexts.
 
-**Q8: How does cross-tab sync work?**
-> A 3-second interval reads localStorage, parses it, and compares via `JSON.stringify`. If different, React state updates. Limitation: 3-second lag and inefficient full-JSON comparison.
+**Q8: How does state persistence work?**
+> Every 3 seconds, the frontend sends the full state to `POST /api/state/save` with the JWT token. On login/page load, state is fetched from `GET /api/state/load`. This replaces the old localStorage-based sync with server-side persistence per user.
 
 **Q9: How does the AI assistant get context?**
 > Each Gemini API call includes a `systemInstruction` with live metrics: battery %, mode, load, and runtime. This lets the AI give contextually relevant energy advice.
@@ -437,8 +492,8 @@ User clicks "Start Simulation"
 
 | Feature | Difficulty | Value |
 |---------|-----------|-------|
-| User Authentication (JWT) | Medium | High |
-| Database Persistence (PostgreSQL) | Medium | High |
+| ~~User Authentication (JWT)~~ | ~~Medium~~ | ✅ Implemented |
+| ~~Database Persistence (SQLite)~~ | ~~Medium~~ | ✅ Implemented |
 | WebSocket Real-Time Sync | Medium | High |
 | PWA Support (offline + install) | Low | Medium |
 | Scheduled Email Reports (cron) | Medium | Medium |
@@ -529,7 +584,14 @@ User clicks "Start Simulation"
 
 ```
 <App>
-├── <nav> (Header: Logo + Tab buttons + Telemetry badge)
+├── Auth Gate (checks JWT → /api/auth/me)
+│   ├── Loading spinner (while checking)
+│   ├── <LoginPage> (if no valid token)
+│   │   ├── Branding (Zap icon + SMARTGRID)
+│   │   ├── Tab switcher (Sign In / Register)
+│   │   └── Form (animated tab switch via Framer Motion)
+│   └── Dashboard (if authenticated):
+├── <nav> (Logo + Tabs + Telemetry + Username + Logout)
 ├── <AnimatePresence>
 │   ├── <OverviewTab>
 │   │   ├── Left: ArcGauge, ModeSwitcher, Chips, AI Status
@@ -540,7 +602,7 @@ User clicks "Start Simulation"
 │   │   ├── Automatic Logic (threshold sliders)
 │   │   ├── Charging & Cost (solar/grid sliders, CSV export)
 │   │   ├── Hardware Gateway (ESP32 placeholder)
-│   │   ├── Alert Channels (SMTP email setup)
+│   │   ├── Alert Channels (login email / custom email choice)
 │   │   └── Device Registration (form)
 │   ├── <RemoteTab> — Mobile-style appliance control
 │   ├── <AITab> — Chat interface + quick actions
@@ -557,12 +619,14 @@ User clicks "Start Simulation"
 | Area | Key Point |
 |------|-----------|
 | What it does | Simulates home inverter management: battery tracking, appliance control, auto-modes, email alerts, AI assistant |
-| Architecture | React SPA + Express backend + localStorage + raw SMTP + optional Gemini AI |
+| Architecture | React SPA + Express backend + SQLite DB + JWT auth + raw SMTP + optional Gemini AI |
+| Auth system | JWT tokens (7d expiry) + bcryptjs password hashing + login/register UI |
+| Database | SQLite via sql.js (WASM) — users table + per-user state persistence |
 | Unique feat | Raw SMTP client with STARTTLS (no Nodemailer) |
-| State approach | React useState + localStorage with cross-tab polling |
+| State approach | React useState + API-synced server-side DB (3s interval) |
 | Simulation | 4-second interval, watt-hour math, auto-mode with appliance auto-cut |
-| Top limitation | Monolithic 1192-line file, no database, no auth, no tests |
-| Top improvement | Component decomposition, WebSocket sync, database, auth |
+| Top limitation | Monolithic App.tsx, no tests, no WebSocket |
+| Top improvement | Component decomposition, WebSocket sync, rate limiting |
 | Hardware path | ESP32 → MQTT → Express → WebSocket → React |
 
 ### Word Document Instructions

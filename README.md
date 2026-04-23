@@ -7,6 +7,8 @@
 ![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white&style=for-the-badge)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white&style=for-the-badge)
 ![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white&style=for-the-badge)
+![SQLite](https://img.shields.io/badge/SQLite-sql.js-003B57?logo=sqlite&logoColor=white&style=for-the-badge)
+![JWT](https://img.shields.io/badge/JWT-Auth-000000?logo=jsonwebtokens&logoColor=white&style=for-the-badge)
 ![SMTP Alerts](https://img.shields.io/badge/SMTP-Email_Alerts-EA4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Prototype-10B981?style=for-the-badge)
 
@@ -27,7 +29,7 @@ The project is built as a prototype for learning, demonstration, and future hard
 - [Configuration](#configuration)
 - [Running the Project](#running-the-project)
 - [Project Structure](#project-structure)
-- [API Endpoint](#api-endpoint)
+- [API Endpoints](#api-endpoints)
 - [Security Notes](#security-notes)
 - [Future Scope](#future-scope)
 
@@ -38,6 +40,21 @@ Many homes use an inverter or battery backup system, but users often do not know
 The system calculates the active load, estimates runtime, tracks battery changes during simulation, supports charging input from solar/grid sources, and automatically switches into saving modes based on battery thresholds.
 
 ## Key Features
+
+### User Authentication
+
+- User registration and login system with JWT-based sessions
+- Passwords hashed with bcryptjs (12 salt rounds)
+- Persistent sessions with 7-day token expiry
+- Glassmorphism-styled login/register page with animated tab switching
+- User profile display and logout in the navigation bar
+
+### Database Persistence
+
+- SQLite database via sql.js (pure WASM, no native compilation needed)
+- Per-user state storage — each user's dashboard state is saved to the database
+- Automatic state sync every 3 seconds via API calls
+- State loads from database on login, falls back to defaults for new users
 
 ### Power Monitoring
 
@@ -76,6 +93,7 @@ The system calculates the active load, estimates runtime, tracks battery changes
 ### Alerts and Assistance
 
 - Server-side SMTP email alert reports from a configured sender account
+- Smart recipient selection: use login email or enter a custom address
 - Manual alert button in the Control page
 - Optional Gemini-powered AI assistant for energy-related questions
 - Remote-control style page for smartphone or IoT dashboard demonstration
@@ -84,11 +102,13 @@ The system calculates the active load, estimates runtime, tracks battery changes
 
 | Module | Purpose |
 |--------|---------|
+| Login/Register | User authentication with JWT tokens and bcrypt password hashing |
 | Overview | Main dashboard with battery status, appliance list, energy graph, and activity log |
 | Control | Simulation controls, thresholds, charging input, CSV export, SMTP alert setup, and device registration |
 | Remote Control | Simplified remote appliance control interface |
 | AI Assistant | Optional Gemini assistant for basic energy guidance |
-| Express Server | Hosts the Vite app and handles SMTP email alert requests |
+| Express Server | Hosts the Vite app, handles auth, state persistence, and SMTP email alerts |
+| SQLite Database | Stores user accounts and per-user dashboard state |
 
 ## Technology Stack
 
@@ -97,24 +117,28 @@ The system calculates the active load, estimates runtime, tracks battery changes
 | Frontend | React 19, TypeScript |
 | Build Tool | Vite |
 | Styling | Tailwind CSS |
-| Animation | Motion |
+| Animation | Motion (Framer Motion) |
 | Icons | Lucide React |
 | Backend | Express |
+| Database | SQLite via sql.js (pure WASM) |
+| Authentication | JWT (jsonwebtoken) + bcryptjs |
 | Email Alerts | SMTP over Node.js |
 | Optional AI | Google GenAI SDK |
-| State Storage | Browser local storage |
+| State Storage | SQLite database (per-user, API-synced) |
 
 ## How the Simulation Works
 
-1. The dashboard starts with a default set of appliances, battery percentage, and battery capacity.
-2. Active load is calculated from appliances that are turned on and not auto-cut.
-3. Charging input is calculated from solar and grid charging sliders.
-4. Net battery flow is calculated as active load minus charging input.
-5. When the simulation is running, battery percentage updates every few seconds.
-6. A history sample is recorded for battery percentage, load, charging input, and mode.
-7. If battery level crosses a configured threshold, the app switches mode automatically.
-8. In Power Saving mode, only high-load non-essential appliances are cut.
-9. In Ultra mode, all non-essential appliances are cut.
+1. The user registers or logs in. Their dashboard state is loaded from the database.
+2. The dashboard starts with a default set of appliances, battery percentage, and battery capacity.
+3. Active load is calculated from appliances that are turned on and not auto-cut.
+4. Charging input is calculated from solar and grid charging sliders.
+5. Net battery flow is calculated as active load minus charging input.
+6. When the simulation is running, battery percentage updates every few seconds.
+7. A history sample is recorded for battery percentage, load, charging input, and mode.
+8. If battery level crosses a configured threshold, the app switches mode automatically.
+9. In Power Saving mode, only high-load non-essential appliances are cut.
+10. In Ultra mode, all non-essential appliances are cut.
+11. State is automatically saved to the database every 3 seconds.
 
 ## Installation
 
@@ -144,7 +168,16 @@ cp .env.example .env.local
 
 ## Configuration
 
-The core dashboard works without API keys. Environment variables are only needed for optional AI and email alert features.
+The core dashboard works without API keys. Environment variables are only needed for optional AI, email alerts, and JWT configuration.
+
+### JWT Authentication
+
+```env
+JWT_SECRET="your_jwt_secret_here"
+DB_PATH="./db/smartgrid.db"
+```
+
+A default JWT secret is used in development. For production, set a strong random secret.
 
 ### Gemini AI Assistant
 
@@ -180,7 +213,7 @@ Open:
 http://127.0.0.1:3000
 ```
 
-This starts the Express server with Vite middleware, so the frontend and alert API run from the same local address.
+This starts the Express server with Vite middleware, so the frontend and all APIs run from the same local address. You will see the login page on first visit — register an account to access the dashboard.
 
 ### Production Build
 
@@ -205,13 +238,17 @@ npm run lint
 ```text
 SmartGrid-Intelligent-Home-Power-System/
 |
+|-- db/
+|   |-- database.ts          # SQLite init, user & state queries (sql.js)
+|
 |-- src/
-|   |-- App.tsx              # Main dashboard, tabs, simulation, controls, AI UI
+|   |-- App.tsx              # Main dashboard, tabs, simulation, auth gate
+|   |-- LoginPage.tsx        # Login/Register page with glassmorphism UI
 |   |-- main.tsx             # React entry point
 |   |-- index.css            # Tailwind import, theme variables, global styles
 |   |-- vite-env.d.ts        # Vite environment typing
 |
-|-- server.ts                # Express server and SMTP alert endpoint
+|-- server.ts                # Express server, auth routes, state API, SMTP
 |-- index.html               # Vite HTML template
 |-- vite.config.ts           # Vite and Tailwind configuration
 |-- package.json             # Scripts and dependencies
@@ -219,18 +256,48 @@ SmartGrid-Intelligent-Home-Power-System/
 |-- README.md                # Project documentation
 ```
 
-## API Endpoint
+## API Endpoints
 
-### Send Email Alert
+### Authentication
+
+| Method | Route | Purpose | Auth |
+|--------|-------|---------|------|
+| POST | `/api/auth/register` | Create a new user account | None |
+| POST | `/api/auth/login` | Login with email and password | None |
+| GET | `/api/auth/me` | Get current user info from token | Bearer token |
+
+### State Persistence
+
+| Method | Route | Purpose | Auth |
+|--------|-------|---------|------|
+| POST | `/api/state/save` | Save user's dashboard state to DB | Bearer token |
+| GET | `/api/state/load` | Load user's saved dashboard state | Bearer token |
+
+### Email Alerts
+
+| Method | Route | Purpose | Auth |
+|--------|-------|---------|------|
+| POST | `/api/send-alert` | Send SMTP email alert report | None |
+
+#### Register Example
+
+```http
+POST /api/auth/register
+Content-Type: application/json
+
+{
+  "username": "johndoe",
+  "email": "john@example.com",
+  "password": "securepassword"
+}
+```
+
+#### Send Alert Example
 
 ```http
 POST /api/send-alert
 Content-Type: application/json
-```
 
-Example payload:
-
-```json
 {
   "recipient": "recipient@example.com",
   "reason": "Manual SmartGrid alert",
@@ -251,15 +318,16 @@ The server validates the recipient email, builds an HTML report, and sends it us
 
 - Secrets should be stored in `.env.local`, not committed to Git.
 - Use an app password or dedicated SMTP credential for email alerts.
-- The current app does not include user authentication.
-- Browser local storage is used for convenience, not secure long-term storage.
-- The SMTP endpoint is intended for local/demo use. For public deployment, add authentication, rate limiting, request validation, and HTTPS.
+- User passwords are hashed with bcryptjs (12 salt rounds) before storage.
+- JWT tokens expire after 7 days. Expired tokens are rejected and the user is logged out.
+- The SQLite database file (`smartgrid.db`) is excluded from Git via `.gitignore`.
+- Browser local storage is used only for JWT tokens and user info, not for dashboard state.
+- The SMTP endpoint is intended for local/demo use. For public deployment, add rate limiting, request validation, and HTTPS.
 
 ## Current Limitations
 
 - Battery behavior is simulated, not connected to real inverter data.
 - Appliance switching is visual only until hardware integration is added.
-- Local storage is per browser and per device.
 - WhatsApp alerts are not included because non-personal WhatsApp sending requires WhatsApp Cloud API, Twilio, or another approved provider.
 - The AI assistant is optional and depends on a valid Gemini API key.
 
@@ -268,8 +336,7 @@ The server validates the recipient email, builds an HTML report, and sends it us
 - ESP32 or relay-board integration
 - MQTT topic publishing and subscription
 - Real inverter battery telemetry
-- Database persistence for history and alerts
-- Authentication for admin and remote users
+- WebSocket real-time sync across devices
 - Automatic scheduled reports
 - WhatsApp Cloud API or Twilio alert support
 - Progressive Web App support for mobile installation

@@ -39,30 +39,32 @@ SmartGrid solves this by providing a **centralized control dashboard** with real
 │                   CLIENT (Browser)               │
 │  ┌─────────────────────────────────────────────┐ │
 │  │  React 19 SPA (TypeScript)                  │ │
+│  │  Auth Gate: LoginPage ↔ Dashboard           │ │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────────┐ │ │
 │  │  │ Overview │ │ Control  │ │Remote Control│ │ │
 │  │  └──────────┘ └──────────┘ └──────────────┘ │ │
 │  │  ┌──────────┐ ┌──────────┐                  │ │
 │  │  │AI Assist │ │  About   │                  │ │
 │  │  └──────────┘ └──────────┘                  │ │
-│  │         │            │                      │ │
-│  │    localStorage   fetch('/api/send-alert')  │ │
-│  └─────────┼────────────┼──────────────────────┘ │
-└────────────┼────────────┼────────────────────────┘
-             │            │
-             ▼            ▼
-     ┌─────────────┐  ┌──────────────────┐
-     │ Browser     │  │  Express Server  │
-     │ localStorage│  │  (server.ts)     │
-     │ (sg-state)  │  │  POST /api/      │
-     └─────────────┘  │  send-alert      │
-                      │       │          │
-                      │       ▼          │
-                      │  ┌──────────┐    │
-                      │  │ Raw SMTP │    │
-                      │  │ (TLS)    │    │
-                      │  └──────────┘    │
-                      └──────────────────┘
+│  │         │   JWT Bearer Token                │ │
+│  │    /api/auth/*  /api/state/*  /api/send-alert│ │
+│  └─────────┼───────────────────────────────────┘ │
+└────────────┼─────────────────────────────────────┘
+             │
+             ▼
+     ┌──────────────────┐
+     │  Express Server  │      SMTP/TLS
+     │  (server.ts)     │─────────────▶ Gmail SMTP
+     │  JWT + bcryptjs  │
+     └────────┬─────────┘
+              │
+              ▼
+     ┌──────────────────┐
+     │ SQLite (sql.js)  │
+     │ smartgrid.db     │
+     │ users,           │
+     │ user_states      │
+     └──────────────────┘
 ```
 
 ### 2.2 Technology Stack
@@ -76,9 +78,11 @@ SmartGrid solves this by providing a **centralized control dashboard** with real
 | **Animation** | Motion (Framer Motion) | 12 | Spring-based UI animations |
 | **Icons** | Lucide React | 0.546 | Modern icon library |
 | **Backend** | Express | 4 | HTTP server + API endpoints |
+| **Database** | SQLite via sql.js | 1.12 | User accounts + state persistence |
+| **Authentication** | JWT + bcryptjs | — | Token auth + password hashing |
 | **Email** | Raw SMTP (Node.js `net`/`tls`) | — | Send alert emails via STARTTLS |
 | **AI Integration** | Google GenAI SDK | 1.29 | Optional Gemini AI assistant |
-| **State Persistence** | Browser localStorage | — | Client-side state storage |
+| **State Persistence** | SQLite DB (per-user) | — | API-synced server-side storage |
 | **Runtime** | tsx | 4.21 | TypeScript execution for server |
 
 ### 2.3 Why These Technologies?
@@ -87,10 +91,11 @@ SmartGrid solves this by providing a **centralized control dashboard** with real
 - **Vite**: Near-instant HMR, native ESM support — far faster than webpack for development
 - **TypeScript**: Catches bugs at compile time; critical for complex state like `SystemState`
 - **Tailwind CSS 4**: Rapid UI development with utility classes; consistent design system via CSS variables
-- **Express**: Lightweight Node.js server; perfect for a single API endpoint
+- **Express**: Lightweight; serves auth, state, and alert APIs
+- **sql.js**: Pure WASM SQLite; no native compilation or Python/build-tools needed
+- **bcryptjs + JWT**: Industry-standard auth; pure JS, no native dependencies
 - **Raw SMTP**: Avoids external email service dependencies (no Nodemailer); demonstrates low-level protocol knowledge
 - **Motion**: Provides spring-physics animations for toggles, tabs, and mode switchers
-- **localStorage**: Zero-config persistence; no database setup needed for a prototype
 
 ---
 
@@ -99,17 +104,20 @@ SmartGrid solves this by providing a **centralized control dashboard** with real
 ### 3.1 Folder Structure
 
 ```
+db/
+└── database.ts      # SQLite init, tables, query helpers (sql.js)
+
 src/
-├── App.tsx          # ALL application logic (~1192 lines, monolithic)
+├── App.tsx          # Dashboard logic, auth gate, API state sync
+├── LoginPage.tsx    # Login/Register page with glassmorphism UI
 ├── main.tsx         # React entry point (ReactDOM.createRoot)
 ├── index.css        # Tailwind import, CSS variables, global styles
 └── vite-env.d.ts    # Vite environment type declarations
+
+server.ts            # Express: auth routes, state API, SMTP alerts
 ```
 
-> [!NOTE]
-> The entire frontend lives in a **single file** (`App.tsx`). This is a deliberate choice for a prototype but would need decomposition for production.
-
-### 3.2 Key Components (all in App.tsx)
+### 3.2 Key Components
 
 | Component | Lines | Purpose |
 |-----------|-------|---------|
@@ -130,7 +138,7 @@ src/
 
 ### 3.3 State Management
 
-**Approach:** React `useState` + `localStorage` (no Redux, no Context API)
+**Approach:** React `useState` + API-synced SQLite persistence (no Redux, no Context API)
 
 The central state type is `SystemState`:
 
@@ -154,9 +162,11 @@ interface SystemState {
 ```
 
 **State Flow:**
-1. On mount: `hydrateState()` reads from `localStorage('sg-state')`
-2. Every mutation goes through `updateState()` which calls `setState()` AND `localStorage.setItem()`
-3. A sync interval (`SYNC_INTERVAL_MS = 3000ms`) reads localStorage to sync across browser tabs
+1. On mount: check JWT token in `localStorage('sg-auth-token')` → call `GET /api/auth/me`
+2. If valid → call `GET /api/state/load` → hydrate state from DB (or fall back to defaults)
+3. If invalid/expired → clear token, show LoginPage
+4. Every mutation → `updateState()` calls `setState()`
+5. Every 3 seconds → `POST /api/state/save` sends full state to server DB
 
 ### 3.4 Routing
 
@@ -171,35 +181,40 @@ Tab switching uses `AnimatePresence` from Motion for smooth fade transitions.
 
 ### 3.5 Frontend-Backend Communication
 
-The frontend only communicates with the backend for **one purpose**: sending email alerts.
+All API calls include `Authorization: Bearer <token>` for protected routes:
 
-```typescript
-// POST /api/send-alert
-const response = await fetch('/api/send-alert', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ recipient, reason, batteryPercent, ... })
-});
-```
-
-All other data (appliances, battery, history) is **entirely client-side**.
+| Call | Purpose |
+|------|---------|
+| `POST /api/auth/register` | Create account → receive JWT |
+| `POST /api/auth/login` | Login → receive JWT |
+| `GET /api/auth/me` | Validate token on page load |
+| `POST /api/state/save` | Save dashboard state (every 3s) |
+| `GET /api/state/load` | Load state on login |
+| `POST /api/send-alert` | Send SMTP email alert |
 
 ---
 
 ## 4. BACKEND DEEP DIVE
 
-### 4.1 Server Structure (`server.ts` — 187 lines)
+### 4.1 Server Structure (`server.ts`)
 
-The Express server serves two purposes:
+The Express server serves multiple purposes:
 1. **Dev mode**: Hosts Vite middleware for HMR development
 2. **Production**: Serves static `dist/` files
-3. **API**: Provides the `/api/send-alert` endpoint
+3. **Auth API**: Register, login, token validation
+4. **State API**: Save/load per-user dashboard state
+5. **Alert API**: Provides the `/api/send-alert` endpoint
 
 ### 4.2 API Endpoints
 
 | Method | Route | Purpose | Auth |
 |--------|-------|---------|------|
-| POST | `/api/send-alert` | Send SMTP email alert report | None |
+| POST | `/api/auth/register` | Create user, return JWT | None |
+| POST | `/api/auth/login` | Validate creds, return JWT | None |
+| GET | `/api/auth/me` | Return user from token | Bearer |
+| POST | `/api/state/save` | Persist state JSON | Bearer |
+| GET | `/api/state/load` | Retrieve state JSON | Bearer |
+| POST | `/api/send-alert` | Send SMTP email alert | None |
 
 ### 4.3 Business Logic — SMTP Email Flow
 
@@ -239,6 +254,9 @@ catch (error) {
 
 ### 4.5 Security Measures in Backend
 
+- JWT authentication with 7-day expiry on protected routes
+- Passwords hashed with bcryptjs (12 salt rounds)
+- `authenticateToken` middleware validates Bearer tokens
 - `express.json({ limit: '128kb' })` — prevents large payload attacks
 - `escapeHtml()` — sanitizes all user data before embedding in HTML emails (XSS prevention)
 - Email regex validation on recipient address
@@ -250,35 +268,52 @@ catch (error) {
 
 ### 5.1 Type of Database
 
-**No traditional database is used.** The project uses **browser `localStorage`** for all persistence.
+**SQLite** database via `sql.js` (pure WASM implementation — no native compilation needed).
+
+Stored at `./db/smartgrid.db`. Persisted to disk after every write.
 
 ### 5.2 Data Schema
 
-```
-localStorage key: "sg-state"
-value: JSON string of SystemState
+**users table:**
+```sql
+CREATE TABLE users (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  username      TEXT NOT NULL UNIQUE,
+  email         TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 ```
 
-The "schema" is effectively the `SystemState` interface containing:
-- `appliances[]` — array of `Appliance` objects (id, name, watts, quantity, isEssential, isOn, isAutoCut)
-- `notifications[]` — array of `Notification` objects (id, type, message, timestamp)
-- `usageHistory[]` — array of `EnergySample` objects (id, time, batteryPercent, activeLoad, chargingWatts, netWatts, mode)
+**user_states table:**
+```sql
+CREATE TABLE user_states (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL UNIQUE,
+  state_json  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+```
 
 ### 5.3 Relationships
 
 ```
-SystemState (1)
-  ├── has many → Appliance[] (14 default + user-added)
-  ├── has many → Notification[] (max 50, LIFO)
-  └── has many → EnergySample[] (max 36, sliding window)
+User (1)
+  └── has one → UserState (state_json contains:)
+        ├── appliances[] (14 default + user-added)
+        ├── notifications[] (capped at 50, LIFO)
+        └── usageHistory[] (capped at 36, sliding window)
 ```
 
 ### 5.4 Data Storage & Retrieval Flow
 
 ```
-Write: updateState(fn) → setState(next) → localStorage.setItem('sg-state', JSON.stringify(next))
-Read:  hydrateState(localStorage.getItem('sg-state')) → JSON.parse → merge with defaults → SystemState
-Sync:  setInterval(3s) → read localStorage → compare → update React state if changed
+Register: bcryptjs.hash(password) → INSERT INTO users → JWT signed
+Login:    findUserByEmail() → bcryptjs.compare() → JWT signed
+Save:     POST /api/state/save → UPSERT user_states → persist to disk
+Load:     GET /api/state/load → SELECT state_json → parse → hydrate
+Sync:     3s interval → POST /api/state/save (automatic background)
 ```
 
 ---
@@ -348,11 +383,11 @@ Step 7: UI re-renders with new battery %, chart updates, log entries
 
 | Aspect | Current State | Production Improvement |
 |--------|--------------|----------------------|
-| State storage | localStorage (5MB limit, single device) | PostgreSQL/MongoDB + user accounts |
-| Real-time sync | localStorage polling (3s) | WebSocket / Server-Sent Events |
+| State storage | SQLite (per-user, server-side) | PostgreSQL for high concurrency |
+| Auth | JWT + bcryptjs | OAuth2 / SSO integration |
+| Real-time sync | API polling (3s) | WebSocket / Server-Sent Events |
 | Email sending | Synchronous SMTP per request | Message queue (RabbitMQ/Redis) |
-| Frontend | Single 65KB monolithic file | Component-based architecture with lazy loading |
-| Multi-user | None | JWT auth + per-user state |
+| Frontend | Monolithic App.tsx | Component-based architecture with lazy loading |
 
 ### 7.2 Performance Bottlenecks
 
@@ -365,21 +400,23 @@ Step 7: UI re-renders with new battery %, chart updates, log entries
 
 | Concern | Status |
 |---------|--------|
-| No authentication | ⚠️ Anyone can access the dashboard and send emails |
+| User authentication | ✅ JWT + bcryptjs (12 salt rounds) |
+| Password storage | ✅ bcryptjs hashed, never stored plaintext |
+| Token expiry | ✅ 7-day JWT expiry, auto-logout |
 | No rate limiting on `/api/send-alert` | ⚠️ Abuse vector for email spamming |
 | SMTP credentials in `.env.local` | ✅ Not committed to git |
 | HTML escaping in emails | ✅ `escapeHtml()` prevents XSS |
+| DB file in .gitignore | ✅ Not committed |
 | No HTTPS enforcement | ⚠️ Credentials sent in plaintext over HTTP |
-| localStorage not encrypted | ⚠️ Any JS on the page can read state |
 | No CSRF protection | ⚠️ Cross-site requests could trigger email sends |
 
 ### 7.4 Possible Improvements
 
-1. Add **WebSocket** for real-time cross-device sync instead of localStorage polling
-2. Implement **user authentication** (JWT + bcrypt)
+1. Add **WebSocket** for real-time cross-device sync instead of API polling
+2. ~~Implement **user authentication** (JWT + bcrypt)~~ ✅ Done
 3. Add **rate limiting** middleware (e.g., `express-rate-limit`)
 4. Split `App.tsx` into **modular components** (`/components`, `/hooks`, `/utils`)
 5. Add **unit tests** (Vitest) and **E2E tests** (Playwright)
-6. Implement **database persistence** (SQLite for prototype, PostgreSQL for production)
+6. ~~Implement **database persistence**~~ ✅ Done (SQLite via sql.js)
 7. Add **PWA support** (service worker + manifest) for mobile installation
 8. Dockerize for **consistent deployment**

@@ -17,10 +17,10 @@
 > **A:** Every 4 seconds (`SIM_TICK_MS`), the system calculates `netWatts = activeLoad - chargingInput`. It then computes `delta = (netWatts / BATTERY_TOTAL_WH) × 100 × (4000 / 3,600,000)` to find the percentage change per tick. The battery is decremented by this delta. If battery reaches 0 with positive net drain, simulation stops automatically.
 
 **Q4: Where is your data stored?**
-> **A:** All application state is persisted in browser `localStorage` under the key `sg-state` as a serialized JSON string. There is no traditional database. This was a deliberate prototype choice for zero-config persistence.
+> User accounts are stored in a SQLite database (`smartgrid.db`) via sql.js. Each user has their own dashboard state (appliances, battery, settings) persisted in a `user_states` table as serialized JSON. JWT tokens are stored in browser localStorage for session persistence.
 
 **Q5: How many API endpoints does your server have?**
-> **A:** One — `POST /api/send-alert`. It accepts a JSON payload with battery status, appliance data, and a recipient email, then sends an HTML email report via SMTP.
+> Six: `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` for authentication; `POST /api/state/save`, `GET /api/state/load` for per-user state persistence; and `POST /api/send-alert` for SMTP email alerts.
 
 ---
 
@@ -32,8 +32,8 @@
 **Q7: Why did you implement a raw SMTP client instead of using Nodemailer?**
 > **A:** The raw SMTP implementation using Node.js `net` and `tls` modules demonstrates low-level understanding of the SMTP protocol (EHLO → STARTTLS → AUTH PLAIN → MAIL FROM → DATA → QUIT). It avoids a heavy dependency, gives full control over the connection lifecycle, and shows protocol-level knowledge — valuable for embedded/IoT contexts where libraries may not be available.
 
-**Q8: How does cross-tab synchronization work?**
-> **A:** A `setInterval` runs every 3 seconds (`SYNC_INTERVAL_MS`). It reads `localStorage.getItem('sg-state')`, parses it via `hydrateState()`, then compares with the current React state using `JSON.stringify`. If different, it updates React state. This allows two browser tabs to stay roughly in sync without WebSockets. The limitation is a 3-second lag and the inefficiency of full JSON serialization for comparison.
+**Q8: How does state persistence and sync work?**
+> **A:** Every 3 seconds, the frontend sends the full state to `POST /api/state/save` with the JWT Bearer token. On login or page load, state is fetched from `GET /api/state/load`. The state is stored per-user in a SQLite database via sql.js. This replaces the old localStorage-based cross-tab sync with server-side, user-specific persistence.
 
 **Q9: How does the AI assistant work? What context does it receive?**
 > **A:** The AI tab uses the Google GenAI SDK (`@google/genai`) to call `gemini-3-flash-preview`. Each request includes a `systemInstruction` containing live system metrics: battery %, mode, active load, and estimated runtime. This gives the AI real-time context to provide relevant energy advice. The API key is loaded from `VITE_GEMINI_API_KEY` environment variable. If not set, it shows a configuration message.
@@ -58,7 +58,7 @@
 
 **Q12: How would you scale this to support 10,000 concurrent users?**
 > **A:** 
-> 1. Replace localStorage with a **PostgreSQL database** + user authentication (JWT)
+> 1. Replace SQLite with a **PostgreSQL database** for high concurrency
 > 2. Use **WebSockets** (Socket.IO or native) for real-time state push instead of polling
 > 3. Put the SMTP sending behind a **message queue** (Redis + Bull) to handle email bursts
 > 4. Deploy behind **Nginx** as a reverse proxy with **load balancing** across multiple Express instances
@@ -66,8 +66,8 @@
 > 6. Add **CDN** (CloudFront/Cloudflare) for static assets
 > 7. Containerize with **Docker** + orchestrate with **Kubernetes** for horizontal scaling
 
-**Q13: What happens if two tabs modify state simultaneously? Is there a race condition?**
-> **A:** Yes, there is a potential race condition. Both tabs write to the same `localStorage` key. The 3-second sync interval means Tab A could overwrite Tab B's changes before Tab B reads them. Solutions: (1) Use the `storage` event listener (`window.addEventListener('storage', ...)`) for instant sync, (2) Use a **CRDT** (Conflict-free Replicated Data Type) for merge-safe state, or (3) Move to server-side state with optimistic UI updates.
+**Q13: What about race conditions with concurrent state saves?**
+> **A:** Since state is now server-side per-user, the old localStorage race condition between tabs is resolved. However, if a user has two tabs open, both send `POST /api/state/save` every 3 seconds — last write wins. Solutions: (1) Add a version/timestamp field to detect conflicts, (2) Use **WebSocket** for instant sync, or (3) Implement optimistic concurrency with ETags.
 
 **Q14: Your simulation uses `setInterval`. What are the pitfalls?**
 > **A:** 
@@ -98,8 +98,8 @@
 **Q18: Can the email endpoint be abused? What if someone sends 10,000 requests?**
 > **A:** Yes. There is no rate limiting, no authentication, and no CAPTCHA. An attacker could: (1) spam the configured SMTP sender, (2) get the sender account flagged/blocked by Gmail, (3) cause resource exhaustion on the server via open TCP connections. Fix: Add `express-rate-limit`, require auth tokens, validate payload size (already done at 128KB).
 
-**Q19: What happens if localStorage is full (5MB limit exceeded)?**
-> **A:** `localStorage.setItem()` throws a `QuotaExceededError`. The current code does NOT catch this in `updateState()`. The React state would update but persistence would silently fail. Fix: Wrap in try-catch, implement data pruning (reduce history/notifications), or migrate to IndexedDB (much higher limits).
+**Q19: What if the SQLite database file is corrupted?**
+> **A:** sql.js loads the DB file into memory on startup. If the file is corrupted, `new SQL.Database(buffer)` would fail. The server would crash on startup. Fix: Add try-catch around DB initialization, fall back to a fresh database, and log the error. For production, add regular backups.
 
 **Q20: The `hydrateState` function merges saved data with defaults. What if the saved schema has extra fields from a future version?**
 > **A:** The spread `{ ...createInitialState(), ...parsed }` means future fields in `parsed` would be preserved. However, if field names change or types change, the app could crash. A proper migration system (versioned schema with migration functions) would be needed for production.
@@ -115,19 +115,22 @@
 | **SMTP Protocol** | The raw SMTP flow (EHLO, STARTTLS, AUTH PLAIN, DATA) is non-trivial. Study RFC 5321 and RFC 3207 for STARTTLS. |
 | **React useEffect Dependencies** | The simulation `useEffect` depends on `[state.isSimulationRunning, activeLoad]`. Missing deps cause stale closures; extra deps cause unnecessary interval recreation. Study the React docs on effect cleanup. |
 | **Battery Math** | The formula `delta = (netWatts / BATTERY_TOTAL_WH) × 100 × (tickMs / 3,600,000)` converts power flow into percentage-per-tick. Understand watt-hours, the relationship between watts and time, and unit conversion. |
+| **JWT Authentication** | JSON Web Tokens encode a payload, signed with a secret. Understand token structure (header.payload.signature), expiry claims, Bearer scheme, and why tokens are stateless. |
+| **SQL & Database Design** | Understand SQLite table creation, FOREIGN KEY constraints, UPSERT patterns, and the sql.js WASM approach vs native bindings. |
+| **Password Hashing** | bcryptjs uses salted hashing with configurable rounds. Understand why plain hashing is insecure, what salt rounds mean, and how compare() works without storing the salt separately. |
 | **TypeScript Generics** | `useState<SystemState>`, `Promise<string>`, `useRef<HTMLDivElement>` — understand how generics provide type safety for hooks. |
 | **SVG Path Commands** | `ArcGauge` and `HistoryChart` use SVG `<circle>` stroke-dasharray and `<path>` M/L commands. Study SVG coordinate systems and path syntax. |
 | **TLS/Cryptography** | `tls.connect({ socket, servername })` upgrades a TCP socket to TLS. Understand the TLS handshake, certificate validation, and why STARTTLS exists. |
 | **Motion/Framer Motion** | Spring-based animations (`stiffness`, `damping`) are physics simulations. Study spring dynamics to understand why values like `{stiffness: 500, damping: 30}` produce specific animation feels. |
-| **Closure Behavior in Intervals** | `setInterval` captures variables at creation time. The `activeLoad` in the simulation interval is a derived value — understand how React's functional `setState` (`prev => ...`) avoids stale state. |
 
 ### 9.2 Concepts to Study
 
 1. **Event Loop & Timers**: How `setInterval` interacts with React's render cycle
 2. **SMTP Authentication**: BASE64 encoding, AUTH PLAIN vs AUTH LOGIN
-3. **localStorage vs IndexedDB**: Capacity limits, async vs sync APIs
-4. **CSS Custom Properties**: How `var(--accent)` enables runtime theming
-5. **Vite Middleware Mode**: How `createViteServer({ server: { middlewareMode: true } })` integrates with Express
+3. **JWT Lifecycle**: Token creation, verification, expiry, refresh patterns
+4. **SQL Fundamentals**: CRUD, FOREIGN KEY, UPSERT patterns, migrations
+5. **CSS Custom Properties**: How `var(--accent)` enables runtime theming
+6. **Vite Middleware Mode**: How `createViteServer({ server: { middlewareMode: true } })` integrates with Express
 
 ---
 
@@ -137,11 +140,13 @@
 
 | Aspect | Detail |
 |--------|--------|
-| **TypeScript Interfaces** | `Appliance`, `Notification`, `EnergySample`, `SystemState` are well-defined |
+| **TypeScript Interfaces** | `Appliance`, `Notification`, `EnergySample`, `SystemState`, `JwtPayload` are well-defined |
 | **HTML Escaping** | `escapeHtml()` prevents XSS in email output |
-| **State Hydration** | `hydrateState()` gracefully handles missing/malformed localStorage data with fallbacks |
+| **State Hydration** | `hydrateState()` gracefully handles missing/malformed data with fallbacks |
+| **Authentication** | JWT + bcryptjs with proper password hashing (12 salt rounds) |
+| **Database Schema** | Normalized users/user_states tables with FOREIGN KEY constraints |
 | **Quantity Backfill** | `appliances.map(a => ({ quantity: 1, ...a }))` handles schema migration for legacy data |
-| **Input Validation** | Email regex validation on the server side |
+| **Input Validation** | Email regex validation on the server side + registration field validation |
 | **Payload Size Limit** | `express.json({ limit: '128kb' })` mitigates large payload attacks |
 | **Animation Quality** | Spring-based toggles and tab transitions feel polished and professional |
 | **CSS Design System** | Consistent use of CSS custom properties (`--bg`, `--surface`, `--accent`, etc.) |
@@ -178,8 +183,8 @@ Each tab receives `state, updateState, handleModeChange, addNotification, ...` a
 
 | Feature | Difficulty | Value |
 |---------|-----------|-------|
-| **User Authentication** (JWT + login page) | Medium | High — multi-user support |
-| **Database Persistence** (PostgreSQL/SQLite) | Medium | High — survives browser clear |
+| **~~User Authentication~~** (JWT + login page) | ~~Medium~~ | ✅ Implemented |
+| **~~Database Persistence~~** (SQLite) | ~~Medium~~ | ✅ Implemented |
 | **WebSocket Real-Time Sync** | Medium | High — instant cross-device updates |
 | **PWA Support** (offline + install) | Low | Medium — mobile-friendly |
 | **Dark/Light Theme Toggle** | Low | Medium — accessibility |
@@ -287,7 +292,14 @@ Each tab receives `state, updateState, handleModeChange, addNotification, ...` a
 
 ```
 <App>
-├── <nav> (Header: Logo + Tabs + Telemetry badge)
+├── Auth Gate (checks JWT → /api/auth/me)
+│   ├── Loading spinner (while checking)
+│   ├── <LoginPage> (if no valid token)
+│   │   ├── Branding (Zap icon + SMARTGRID)
+│   │   ├── Tab switcher (Sign In / Register)
+│   │   └── Form (animated tab switch via Framer Motion)
+│   └── Dashboard (if authenticated):
+├── <nav> (Header: Logo + Tabs + Telemetry + Username + Logout)
 ├── <AnimatePresence>
 │   ├── <OverviewTab>
 │   │   ├── Left Sidebar
@@ -315,7 +327,7 @@ Each tab receives `state, updateState, handleModeChange, addNotification, ...` a
 │   │   ├── <SideCard "Automatic Logic"> (threshold sliders)
 │   │   ├── <SideCard "Charging And Cost"> (solar/grid sliders, CSV, cost)
 │   │   ├── <SideCard "Hardware Gateway"> (ESP32 placeholder)
-│   │   ├── <SideCard "Alert Channels"> (SMTP toggle, email input)
+│   │   ├── <SideCard "Alert Channels"> (login email / custom email choice)
 │   │   └── <SideCard "Device Registration"> (form with 5 fields)
 │   ├── <RemoteTab>
 │   │   └── <SideCard "Remote Terminal">
@@ -345,12 +357,14 @@ Each tab receives `state, updateState, handleModeChange, addNotification, ...` a
 | Question Area | Key Points to Remember |
 |--------------|----------------------|
 | **What it does** | Simulates home inverter power management with battery tracking, appliance control, auto-modes, email alerts, and AI assistant |
-| **Architecture** | React SPA + Express backend + localStorage + raw SMTP + optional Gemini AI |
+| **Architecture** | React SPA + Express backend + SQLite DB + JWT auth + raw SMTP + optional Gemini AI |
+| **Auth system** | JWT tokens (7d expiry) + bcryptjs password hashing + login/register UI |
+| **Database** | SQLite via sql.js (WASM) — users table + per-user state persistence |
 | **Unique technical feat** | Raw SMTP client implementation (no Nodemailer) with STARTTLS |
-| **State management** | React useState + localStorage with cross-tab polling sync |
+| **State management** | React useState + API-synced server-side DB (3s interval) |
 | **Simulation engine** | 4-second interval, watt-hour math, auto-mode switching with appliance auto-cut |
-| **Biggest limitation** | Monolithic 1192-line App.tsx, no database, no auth, no tests |
-| **Biggest improvement** | Component decomposition, WebSocket sync, database persistence, user auth |
+| **Biggest limitation** | Monolithic App.tsx, no tests, no WebSocket |
+| **Biggest improvement** | Component decomposition, WebSocket sync, rate limiting |
 | **Hardware path** | ESP32 → MQTT → Express → WebSocket → React (architecture is ready) |
 
 > [!TIP]

@@ -2,6 +2,7 @@ import subprocess
 import sys
 import os
 import platform
+import shutil
 
 def check_installation():
     print("--- SmartGrid System Dependency Check ---")
@@ -45,15 +46,35 @@ def check_installation():
             
     return node_installed
 
+def setup_env():
+    """Create .env.local from .env.example if it doesn't exist."""
+    if os.path.exists('.env.local'):
+        print("[OK] .env.local already exists.")
+        return
+
+    if os.path.exists('.env.example'):
+        shutil.copy('.env.example', '.env.local')
+        print("[CREATED] .env.local created from .env.example")
+        print("   Edit .env.local to configure JWT_SECRET, SMTP, and AI keys.")
+    else:
+        print("[WARNING] .env.example not found. Create .env.local manually.")
+
 def install_dependencies():
     print("\n--- Installing Project Libraries (package.json) ---")
     try:
         subprocess.check_call(['npm', 'install'])
         print("\n[SUCCESS] Libraries installed successfully.")
         
+        # Set up environment file
+        print("\n--- Environment Setup ---")
+        setup_env()
+        
         print("\n--- Setup Complete ---")
         print("To start SmartGrid, run:")
         print("   npm run dev")
+        print("")
+        print("Then open http://127.0.0.1:3000 in your browser.")
+        print("Register a new account to access the dashboard.")
     except subprocess.CalledProcessError:
         print("\n[ERROR] Library installation failed. Try running 'npm install' manually.")
 

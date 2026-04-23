@@ -1,5 +1,5 @@
 # SmartGrid Project Requirements
-# This project is a React/TypeScript web application.
+# This project is a React/TypeScript web application with an Express backend.
 # To run this, you need the following installed on your machine:
 
 1. Node.js (Version 18.0 or higher) - https://nodejs.org/
@@ -7,6 +7,23 @@
 3. A modern web browser (Chrome, Firefox, Safari, or Edge)
 4. A text editor (like VS Code) - Optional but recommended
 
+# Core Dependencies (installed via npm install):
+# - react 19, react-dom 19          — Frontend UI framework
+# - typescript 5.8                  — Type-safe JavaScript
+# - vite 6                          — Build tool and dev server
+# - tailwindcss 4                   — Utility-first CSS framework
+# - motion 12 (Framer Motion)       — Spring-based UI animations
+# - lucide-react                    — Icon library
+# - express 4                       — HTTP server and API
+# - sql.js                          — SQLite database (pure WASM, no native build needed)
+# - bcryptjs                        — Password hashing (pure JS, no native build needed)
+# - jsonwebtoken                    — JWT token generation and verification
+# - dotenv                          — Environment variable loading
+# - @google/genai                   — Optional Gemini AI assistant
+
 # Instructions:
 # 1. Ensure Node.js is installed. Check by running `node -v` in your terminal.
-# 2. To install all code-level dependencies, run `python3 setup.py`.
+# 2. To install all code-level dependencies, run `python setup.py` or `npm install`.
+# 3. Copy `.env.example` to `.env.local` and configure as needed.
+# 4. Run `npm run dev` to start the development server.
+# 5. Open http://127.0.0.1:3000 — register an account to access the dashboard.
