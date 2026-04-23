@@ -5,6 +5,15 @@ import net from 'net';
 import tls from 'tls';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import {
+  initDb,
+  createUser, findUserByEmail, findUserById,
+  upsertState, loadState
+} from './db/database.ts';
+
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 interface AlertDevice {
   name: string;
@@ -27,12 +36,168 @@ interface AlertPayload {
   appliances: AlertDevice[];
 }
 
+interface JwtPayload {
+  userId: number;
+  email: string;
+}
+
+// ── Server setup ───────────────────────────────────────────────────────────────
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const isProduction = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
+const JWT_SECRET = process.env.JWT_SECRET || 'smartgrid-dev-secret-change-in-production';
+const JWT_EXPIRY = '7d';
+const SALT_ROUNDS = 12;
 
 app.use(express.json({ limit: '128kb' }));
+
+// ── Initialize database before starting server ────────────────────────────────
+
+await initDb();
+
+// ── Auth middleware ────────────────────────────────────────────────────────────
+
+function authenticateToken(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    (req as any).user = decoded;
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token.' });
+  }
+}
+
+// ── Auth routes ────────────────────────────────────────────────────────────────
+
+app.post('/api/auth/register', async (req, res) => {
+  const { username, email, password } = req.body;
+
+  if (!username || !email || !password) {
+    res.status(400).json({ error: 'Username, email, and password are required.' });
+    return;
+  }
+  if (username.length < 3) {
+    res.status(400).json({ error: 'Username must be at least 3 characters.' });
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: 'Invalid email address.' });
+    return;
+  }
+  if (password.length < 6) {
+    res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    return;
+  }
+
+  try {
+    const existing = findUserByEmail(email);
+    if (existing) {
+      res.status(409).json({ error: 'An account with this email already exists.' });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const userId = createUser(username, email, passwordHash);
+
+    const token = jwt.sign({ userId, email } as JwtPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+
+    res.status(201).json({
+      token,
+      user: { id: userId, username, email }
+    });
+  } catch (err: any) {
+    if (err.message?.includes('UNIQUE constraint')) {
+      res.status(409).json({ error: 'Username or email already taken.' });
+      return;
+    }
+    console.error('Register error:', err);
+    res.status(500).json({ error: 'Registration failed.' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    res.status(400).json({ error: 'Email and password are required.' });
+    return;
+  }
+
+  try {
+    const user = findUserByEmail(email) as any;
+    if (!user) {
+      res.status(401).json({ error: 'Invalid email or password.' });
+      return;
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      res.status(401).json({ error: 'Invalid email or password.' });
+      return;
+    }
+
+    const token = jwt.sign({ userId: user.id, email: user.email } as JwtPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+
+    res.json({
+      token,
+      user: { id: user.id, username: user.username, email: user.email }
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Login failed.' });
+  }
+});
+
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+  const userId = (req as any).user.userId;
+  const user = findUserById(userId) as any;
+  if (!user) {
+    res.status(404).json({ error: 'User not found.' });
+    return;
+  }
+  res.json({ user });
+});
+
+// ── State persistence routes ───────────────────────────────────────────────────
+
+app.post('/api/state/save', authenticateToken, (req, res) => {
+  const userId = (req as any).user.userId;
+  const stateJson = JSON.stringify(req.body);
+  try {
+    upsertState(userId, stateJson);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('State save error:', err);
+    res.status(500).json({ error: 'Failed to save state.' });
+  }
+});
+
+app.get('/api/state/load', authenticateToken, (req, res) => {
+  const userId = (req as any).user.userId;
+  try {
+    const stateJson = loadState(userId);
+    if (!stateJson) {
+      res.json({ state: null });
+      return;
+    }
+    res.json({ state: JSON.parse(stateJson) });
+  } catch (err) {
+    console.error('State load error:', err);
+    res.status(500).json({ error: 'Failed to load state.' });
+  }
+});
+
+// ── Email / SMTP helpers (unchanged) ───────────────────────────────────────────
 
 const escapeHtml = (value: unknown) => String(value)
   .replace(/&/g, '&amp;')
@@ -154,6 +319,8 @@ const sendEmailReport = async (payload: AlertPayload) => {
   socket.end();
 };
 
+// ── Alert route ────────────────────────────────────────────────────────────────
+
 app.post('/api/send-alert', async (req, res) => {
   const payload = req.body as AlertPayload;
   if (!payload.recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.recipient)) {
@@ -169,6 +336,8 @@ app.post('/api/send-alert', async (req, res) => {
     res.status(500).json({ error: message });
   }
 });
+
+// ── Static / Vite ──────────────────────────────────────────────────────────────
 
 if (isProduction) {
   app.use(express.static(path.join(__dirname, 'dist')));

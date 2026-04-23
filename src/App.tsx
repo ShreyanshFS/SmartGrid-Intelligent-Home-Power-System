@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Zap, Send, Activity, Smartphone, CheckCircle2, Download, Sun, Wifi, Github, Maximize2, X } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Zap, Send, Activity, Smartphone, CheckCircle2, Download, Sun, Wifi, Github, Maximize2, X, LogOut, UserCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
+import LoginPage from './LoginPage';
 
 interface Appliance {
   id: string; name: string; watts: number; quantity: number;
@@ -42,7 +43,8 @@ const INITIAL_APPLIANCES: Appliance[] = [
   { id: '14', name: 'Washing Machine', watts: 500, quantity: 1, isEssential: false, isOn: false, isAutoCut: false },
 ];
 
-const BATTERY_TOTAL_WH = 1000, SYNC_KEY = 'sg-state', SYNC_INTERVAL_MS = 3000, SIM_TICK_MS = 4000, HISTORY_LIMIT = 36;
+const BATTERY_TOTAL_WH = 1000, SYNC_INTERVAL_MS = 3000, SIM_TICK_MS = 4000, HISTORY_LIMIT = 36;
+const AUTH_TOKEN_KEY = 'sg-auth-token', AUTH_USER_KEY = 'sg-user';
 
 const createInitialState = (): SystemState => ({
   batteryPercent: 85, mode: 'Normal',
@@ -295,11 +297,20 @@ const HistoryChart = ({ history }: { history: EnergySample[] }) => {
   );
 };
 
+// ─── Auth helpers ──────────────────────────────────────────────────────────────
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  return token ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } : undefined;
+};
+
 // ─── Main App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('Overview');
-  const [state, setState] = useState<SystemState>(() => hydrateState(localStorage.getItem(SYNC_KEY)));
+  const [state, setState] = useState<SystemState>(() => createInitialState());
+  const [authUser, setAuthUser] = useState<{ id: number; username: string; email: string } | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [newAppliance, setNewAppliance] = useState({ name: '', watts: 0, quantity: 1, isEssential: false });
@@ -329,11 +340,7 @@ export default function App() {
   };
 
   const updateState = (updater: (p: SystemState) => SystemState) => {
-    setState(prev => {
-      const next = updater(prev);
-      localStorage.setItem(SYNC_KEY, JSON.stringify(next));
-      return next;
-    });
+    setState(prev => updater(prev));
   };
 
   const handleModeChange = (newMode: SystemState['mode']) => {
@@ -423,13 +430,40 @@ export default function App() {
     return () => clearInterval(interval);
   }, [state.isSimulationRunning, activeLoad]);
 
+  // ── Auth check on mount ──
   useEffect(() => {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (!token) { setAuthChecked(true); return; }
+    fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(data => {
+        setAuthUser(data.user);
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
+        // Load saved state from DB
+        return fetch('/api/state/load', { headers: { 'Authorization': `Bearer ${token}` } });
+      })
+      .then(r => r?.json())
+      .then(data => {
+        if (data?.state) setState(hydrateState(JSON.stringify(data.state)));
+      })
+      .catch(() => {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(AUTH_USER_KEY);
+        setAuthUser(null);
+      })
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  // ── Periodic state save to API ──
+  useEffect(() => {
+    if (!authUser) return;
     const interval = setInterval(() => {
-      const saved = localStorage.getItem(SYNC_KEY);
-      if (saved) { try { const p = hydrateState(saved); setState(prev => JSON.stringify(prev) !== JSON.stringify(p) ? p : prev); } catch { /* ignore */ } }
+      const headers = getAuthHeaders();
+      if (!headers) return;
+      fetch('/api/state/save', { method: 'POST', headers, body: JSON.stringify(state) }).catch(() => {});
     }, SYNC_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [authUser, state]);
 
   async function askAI(question: string) {
     if (!question) return;
@@ -461,7 +495,46 @@ Respond with short, concise, and helpful bullet points. Use bold for emphasis an
     } finally { setIsTyping(false); }
   }
 
+  const handleAuth = useCallback((token: string, user: { id: number; username: string; email: string }) => {
+    setAuthUser(user);
+    // Load state from server after login
+    fetch('/api/state/load', { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data?.state) setState(hydrateState(JSON.stringify(data.state)));
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    // Save state one last time before logout
+    const headers = getAuthHeaders();
+    if (headers) {
+      fetch('/api/state/save', { method: 'POST', headers, body: JSON.stringify(state) }).catch(() => {});
+    }
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
+    setAuthUser(null);
+    setState(createInitialState());
+  }, [state]);
+
   const tabs = ['Overview', 'Control', 'Remote Control', 'AI Assistant', 'About'];
+
+  // ── Auth gate ──
+  if (!authChecked) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-[var(--text-dim)] font-mono uppercase tracking-wider">Loading SmartGrid…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return <LoginPage onAuth={handleAuth} />;
+  }
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
@@ -482,9 +555,23 @@ Respond with short, concise, and helpful bullet points. Use bold for emphasis an
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-full text-[0.6rem] font-mono text-[var(--success)] font-bold uppercase tracking-tight">
-          <span className={`w-1.5 h-1.5 rounded-full bg-[var(--success)] ${state.isSimulationRunning ? 'animate-pulse' : ''}`} />
-          Telemetry Active — {state.usageHistory.length} Samples
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-full text-[0.6rem] font-mono text-[var(--success)] font-bold uppercase tracking-tight">
+            <span className={`w-1.5 h-1.5 rounded-full bg-[var(--success)] ${state.isSimulationRunning ? 'animate-pulse' : ''}`} />
+            Telemetry Active — {state.usageHistory.length} Samples
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-full">
+            <UserCircle className="w-3.5 h-3.5 text-[var(--accent)]" />
+            <span className="text-[0.7rem] font-semibold text-white">{authUser.username}</span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-full text-[0.7rem] font-semibold text-[var(--text-dim)] hover:text-[var(--danger)] hover:border-red-500/30 transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            Logout
+          </button>
         </div>
       </nav>
 
