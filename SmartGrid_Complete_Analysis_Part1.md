@@ -21,12 +21,12 @@ SmartGrid solves this by providing a **centralized control dashboard** with real
 > **Scenario:** A family in India experiences a power cut. Their inverter battery is at 40%. The AC, two TVs, and multiple fans are running. SmartGrid automatically detects the battery is below the "Power Saving" threshold (30%), cuts non-essential high-wattage appliances (AC, TVs), and sends an email alert to the homeowner with a status report — all without manual intervention.
 
 ### 1.4 Target Users
-| User Type | Use Case |
-|-----------|----------|
-| Homeowners with inverters | Monitor and manage backup power |
-| Engineering students | Learn IoT, simulation, and full-stack development |
-| Smart home enthusiasts | Prototype appliance control dashboards |
-| Hardware developers | Use as a UI layer for ESP32/MQTT relay boards |
+| User Type                     | Use Case                                          |
+|-------------------------------|---------------------------------------------------|
+| Homeowners with inverters     | Monitor and manage backup power                   |
+| Engineering students          | Learn IoT, simulation, and full-stack development |
+| Smart home enthusiasts        | Prototype appliance control dashboards            |
+| Hardware developers           | Use as a UI layer for ESP32/MQTT relay boards     |
 
 ---
 
@@ -47,7 +47,7 @@ SmartGrid solves this by providing a **centralized control dashboard** with real
 │  │  │AI Assist │ │  About   │                  │ │
 │  │  └──────────┘ └──────────┘                  │ │
 │  │         │   JWT Bearer Token                │ │
-│  │    /api/auth/*  /api/state/*  /api/send-alert│ │
+│  │    /api/auth/*  /api/state/* /api/send-alert│ │
 │  └─────────┼───────────────────────────────────┘ │
 └────────────┼─────────────────────────────────────┘
              │
@@ -69,7 +69,7 @@ SmartGrid solves this by providing a **centralized control dashboard** with real
 
 ### 2.2 Technology Stack
 
-| Layer | Technology | Version | Purpose |
+| Layer    | Technology | Version | Purpose |
 |-------|-----------|---------|---------|
 | **Frontend Framework** | React | 19 | Component-based UI rendering |
 | **Language** | TypeScript | 5.8 | Type-safe JavaScript |
