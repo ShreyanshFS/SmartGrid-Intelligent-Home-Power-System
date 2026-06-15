@@ -1,11 +1,24 @@
 # SmartGrid Project Requirements
 # This project is a React/TypeScript web application with an Express backend.
 # To run this, you need the following installed on your machine:
+react==19.0.0
+react-dom==19.0.0
+typescript==5.8.0
+vite==6.0.0
+tailwindcss==4.0.0
+motion==12.0.0
+lucide-react==0.0.0
+express==4.0.0
+sql.js==0.0.0
+bcryptjs==0.0.0
+jsonwebtoken==0.0.0
+dotenv==0.0.0
+google-genai==0.0.0
 
-1. Node.js (Version 18.0 or higher) - https://nodejs.org/
-2. npm (Node Package Manager) - Included with Node.js
-3. A modern web browser (Chrome, Firefox, Safari, or Edge)
-4. A text editor (like VS Code) - Optional but recommended
+#1. Node.js (Version 18.0 or higher) - https://nodejs.org/
+#2. npm (Node Package Manager) - Included with Node.js
+#3. A modern web browser (Chrome, Firefox, Safari, or Edge)
+#4. A text editor (like VS Code) - Optional but recommended
 
 # Core Dependencies (installed via npm install):
 # - react 19, react-dom 19          — Frontend UI framework
