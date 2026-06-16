@@ -127,5 +127,36 @@ export function loadState(userId: number): string | null {
   return null;
 }
 
+export function getAllUsers() {
+  const stmt = db.prepare(`SELECT id, username, email, created_at FROM users ORDER BY id ASC`);
+  const users = [];
+  while (stmt.step()) {
+    users.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return users;
+}
+
+export function updateUser(id: number, username: string, email: string, passwordHash?: string) {
+  if (passwordHash) {
+    db.run(
+      `UPDATE users SET username = ?, email = ?, password_hash = ? WHERE id = ?`,
+      [username, email, passwordHash, id]
+    );
+  } else {
+    db.run(
+      `UPDATE users SET username = ?, email = ? WHERE id = ?`,
+      [username, email, id]
+    );
+  }
+  persist();
+}
+
+export function deleteUser(id: number) {
+  db.run(`DELETE FROM users WHERE id = ?`, [id]);
+  persist();
+}
+
 export { initDb };
 export default db!;
+

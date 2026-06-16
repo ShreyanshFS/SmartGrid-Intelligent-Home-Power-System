@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Zap, Send, Activity, Smartphone, CheckCircle2, Download, Sun, Wifi, Github, Maximize2, X, LogOut, UserCircle } from 'lucide-react';
+import { Zap, Send, Activity, Smartphone, CheckCircle2, Download, Sun, Wifi, Github, Maximize2, X, LogOut, UserCircle, Users, UserPlus, Trash2, Key, Edit, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import LoginPage from './LoginPage';
@@ -314,6 +314,7 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [newAppliance, setNewAppliance] = useState({ name: '', watts: 0, quantity: 1, isEssential: false });
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   // quantity × watts
   const activeLoad = useMemo(() =>
@@ -518,7 +519,7 @@ Respond with short, concise, and helpful bullet points. Use bold for emphasis an
     setState(createInitialState());
   }, [state]);
 
-  const tabs = ['Overview', 'Control', 'Remote Control', 'AI Assistant', 'About'];
+  const tabs = ['Overview', 'Control', 'Remote Control', 'Manage Users', 'AI Assistant', 'About'];
 
   // ── Auth gate ──
   if (!authChecked) {
@@ -560,10 +561,14 @@ Respond with short, concise, and helpful bullet points. Use bold for emphasis an
             <span className={`w-1.5 h-1.5 rounded-full bg-[var(--success)] ${state.isSimulationRunning ? 'animate-pulse' : ''}`} />
             Telemetry Active — {state.usageHistory.length} Samples
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-full">
+          <button
+            onClick={() => setIsProfileModalOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-full hover:border-[var(--accent)] hover:bg-[var(--surface2)] transition-all cursor-pointer"
+            title="Edit Profile"
+          >
             <UserCircle className="w-3.5 h-3.5 text-[var(--accent)]" />
             <span className="text-[0.7rem] font-semibold text-white">{authUser.username}</span>
-          </div>
+          </button>
           <button
             onClick={handleLogout}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-full text-[0.7rem] font-semibold text-[var(--text-dim)] hover:text-[var(--danger)] hover:border-red-500/30 transition-colors"
@@ -597,6 +602,9 @@ Respond with short, concise, and helpful bullet points. Use bold for emphasis an
             {activeTab === 'AI Assistant' && (
               <AITab messages={chatMessages} isTyping={isTyping} onAsk={askAI} />
             )}
+            {activeTab === 'Manage Users' && (
+              <ManageUsersTab authUser={authUser} addNotification={addNotification} />
+            )}
             {activeTab === 'About' && <AboutTab />}
           </motion.div>
         </AnimatePresence>
@@ -607,6 +615,20 @@ Respond with short, concise, and helpful bullet points. Use bold for emphasis an
           style={{ backgroundColor: state.batteryPercent > 30 ? 'var(--success)' : state.batteryPercent > 10 ? 'var(--warning)' : 'var(--danger)' }}
           transition={{ duration: 0.8 }} />
       </div>
+
+      <AnimatePresence>
+        {isProfileModalOpen && (
+          <EditProfileModal
+            authUser={authUser}
+            onClose={() => setIsProfileModalOpen(false)}
+            onUpdateUser={(updatedUser: any) => {
+              setAuthUser(updatedUser);
+              localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser));
+            }}
+            addNotification={addNotification}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1338,3 +1360,599 @@ function AboutTab() {
     </div>
   );
 }
+
+// ─── Edit Profile Modal ────────────────────────────────────────────────────────
+
+interface EditProfileModalProps {
+  authUser: { id: number; username: string; email: string };
+  onClose: () => void;
+  onUpdateUser: (user: any) => void;
+  addNotification: (message: string, type?: any) => void;
+}
+
+function EditProfileModal({ authUser, onClose, onUpdateUser, addNotification }: EditProfileModalProps) {
+  const [username, setUsername] = useState(authUser.username);
+  const [email, setEmail] = useState(authUser.email);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!username.trim() || !email.trim()) {
+      setError('Username and email are required.');
+      return;
+    }
+    if (username.trim().length < 3) {
+      setError('Username must be at least 3 characters.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (password && password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    if (password && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch(`/api/users/${authUser.id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          username: username.trim(),
+          email: email.trim(),
+          password: password || undefined
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update profile.');
+
+      onUpdateUser(data.user);
+      setSuccess('Profile updated successfully.');
+      addNotification('Your profile was updated.', 'success');
+      setTimeout(() => {
+        onClose();
+      }, 1000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update profile.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4"
+    >
+      <motion.div
+        initial={{ scale: 0.95, y: 10 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.95, y: 10 }}
+        className="bg-[#0c1226]/90 backdrop-blur-xl border border-[var(--border)] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
+          <h3 className="font-bold text-base text-white flex items-center gap-2">
+            <UserCircle className="w-5 h-5 text-[var(--accent)]" /> Edit Profile
+          </h3>
+          <button onClick={onClose} className="p-1 hover:bg-white/5 rounded-lg transition-colors">
+            <X className="w-4 h-4 text-[var(--text-dim)]" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[0.65rem] text-[var(--text-dim)] uppercase font-semibold tracking-wider">Username</label>
+            <input
+              type="text"
+              required
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full focus:border-[var(--accent)] transition-colors"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[0.65rem] text-[var(--text-dim)] uppercase font-semibold tracking-wider">Email</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full focus:border-[var(--accent)] transition-colors"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[0.65rem] text-[var(--text-dim)] uppercase font-semibold tracking-wider">New Password (leave blank to keep current)</label>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="bg-[var(--bg)] border border-[var(--border)] rounded-lg pl-3 pr-10 py-2 text-sm w-full focus:border-[var(--accent)] transition-colors"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-dim)] hover:text-white transition-colors"
+              >
+                {showPassword ? <X className="w-4 h-4" /> : <Key className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {password && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[0.65rem] text-[var(--text-dim)] uppercase font-semibold tracking-wider">Confirm Password</label>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full focus:border-[var(--accent)] transition-colors"
+                placeholder="••••••••"
+              />
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2 text-[0.75rem] text-red-400 font-medium">
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-2 text-[0.75rem] text-green-400 font-medium">
+              {success}
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-end mt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="bg-[var(--bg)] border border-[var(--border)] text-[var(--text-dim)] hover:text-white transition-colors rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-wider"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-[var(--accent)] text-white hover:bg-blue-600 transition-colors rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-wider"
+            >
+              {loading ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── Manage Users Tab ──────────────────────────────────────────────────────────
+
+interface UserProfile {
+  id: number;
+  username: string;
+  email: string;
+  created_at: string;
+}
+
+function ManageUsersTab({ authUser, addNotification }: { authUser: any; addNotification: (msg: string, type?: any) => void }) {
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  // Form states for adding/editing users
+  const [formMode, setFormMode] = useState<'list' | 'add' | 'edit'>('list');
+  const [editUserId, setEditUserId] = useState<number | null>(null);
+
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Fetch users on mount
+  const fetchUsers = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch('/api/users', { headers });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch users.');
+      setUsers(data.users || []);
+    } catch (err: any) {
+      setError(err.message || 'Connection failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  const resetForm = () => {
+    setUsername('');
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setError('');
+    setSuccess('');
+    setEditUserId(null);
+    setShowPassword(false);
+  };
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!username.trim() || !email.trim() || !password) {
+      setError('All fields are required.');
+      return;
+    }
+    if (username.trim().length < 3) {
+      setError('Username must be at least 3 characters.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ username: username.trim(), email: email.trim(), password })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create user.');
+
+      setSuccess('User created successfully.');
+      addNotification(`User created: ${username.trim()}`, 'success');
+      resetForm();
+      setFormMode('list');
+      fetchUsers();
+    } catch (err: any) {
+      setError(err.message || 'Failed to create user.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!username.trim() || !email.trim()) {
+      setError('Username and email are required.');
+      return;
+    }
+    if (username.trim().length < 3) {
+      setError('Username must be at least 3 characters.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (password && password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    if (password && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch(`/api/users/${editUserId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          username: username.trim(),
+          email: email.trim(),
+          password: password || undefined
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update user.');
+
+      setSuccess('User updated successfully.');
+      addNotification(`User updated: ${username.trim()}`, 'success');
+      resetForm();
+      setFormMode('list');
+      fetchUsers();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update user.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (id: number, uName: string) => {
+    if (id === authUser?.id) {
+      addNotification('You cannot delete your own logged-in account.', 'error');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete user "${uName}"?`)) {
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch(`/api/users/${id}`, {
+        method: 'DELETE',
+        headers
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete user.');
+
+      addNotification(`Deleted user: ${uName}`, 'warning');
+      fetchUsers();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete user.');
+    }
+  };
+
+  const startEdit = (user: UserProfile) => {
+    resetForm();
+    setEditUserId(user.id);
+    setUsername(user.username);
+    setEmail(user.email);
+    setFormMode('edit');
+  };
+
+  const formatDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  return (
+    <div className="h-full overflow-y-auto custom-scrollbar p-4">
+      <div className="max-w-4xl mx-auto flex flex-col gap-4">
+        
+        {/* Header summary card */}
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-[var(--accent)] shrink-0">
+              <Users className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-white">Manage System Users</h2>
+              <p className="text-xs text-[var(--text-dim)]">Create, modify, and delete operator accounts for the SmartGrid console.</p>
+            </div>
+          </div>
+          
+          {formMode === 'list' && (
+            <button
+              onClick={() => { resetForm(); setFormMode('add'); }}
+              className="flex items-center justify-center gap-2 bg-[var(--accent)] text-white hover:bg-blue-600 transition-colors px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider shrink-0"
+            >
+              <UserPlus className="w-4 h-4" /> Add New User
+            </button>
+          )}
+        </div>
+
+        {/* Action Panel for Add/Edit */}
+        {formMode !== 'list' && (
+          <SideCard title={formMode === 'add' ? 'Register New User' : `Edit User: ${username}`}>
+            <form onSubmit={formMode === 'add' ? handleAddUser : handleEditUser} className="p-5 flex flex-col gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[0.65rem] text-[var(--text-dim)] uppercase font-semibold tracking-wider">Username</label>
+                  <input
+                    type="text"
+                    required
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full focus:border-[var(--accent)] transition-colors"
+                    placeholder="e.g. alexsmith"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[0.65rem] text-[var(--text-dim)] uppercase font-semibold tracking-wider">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full focus:border-[var(--accent)] transition-colors"
+                    placeholder="e.g. alex@example.com"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[0.65rem] text-[var(--text-dim)] uppercase font-semibold tracking-wider">
+                    {formMode === 'add' ? 'Password' : 'New Password (leave blank to keep current)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required={formMode === 'add'}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      className="bg-[var(--bg)] border border-[var(--border)] rounded-lg pl-3 pr-10 py-2 text-sm w-full focus:border-[var(--accent)] transition-colors"
+                      placeholder="••••••••"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-dim)] hover:text-white transition-colors"
+                    >
+                      {showPassword ? <X className="w-4 h-4" /> : <Key className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[0.65rem] text-[var(--text-dim)] uppercase font-semibold tracking-wider">Confirm Password</label>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required={formMode === 'add' || !!password}
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm w-full focus:border-[var(--accent)] transition-colors"
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5 text-[0.8rem] text-red-400 font-medium">
+                  {error}
+                </div>
+              )}
+
+              {success && (
+                <div className="bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-2.5 text-[0.8rem] text-green-400 font-medium">
+                  {success}
+                </div>
+              )}
+
+              <div className="flex gap-3 justify-end mt-2">
+                <button
+                  type="button"
+                  onClick={() => { resetForm(); setFormMode('list'); }}
+                  className="bg-[var(--bg)] border border-[var(--border)] text-[var(--text-dim)] hover:text-white transition-colors rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-wider"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="bg-[var(--accent)] text-white hover:bg-blue-600 transition-colors rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
+                >
+                  {loading ? 'Saving…' : formMode === 'add' ? 'Create User' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </SideCard>
+        )}
+
+        {/* Directory Listing */}
+        {formMode === 'list' && (
+          <SideCard title={`Registered Accounts (${users.length})`}>
+            <div className="p-3 overflow-hidden">
+              {loading && users.length === 0 ? (
+                <div className="text-center py-8 text-xs font-mono text-[var(--text-dim)] animate-pulse">Retrieving directory…</div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {users.map(user => {
+                    const isSelf = user.id === authUser?.id;
+                    return (
+                      <div
+                        key={user.id}
+                        className="group flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3.5 bg-[var(--bg)] border border-[var(--border)] rounded-xl hover:border-[var(--border-hover)] transition-colors"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-bold border border-white/5 bg-gradient-to-br ${
+                            isSelf ? 'from-blue-500/20 to-indigo-500/20 text-[var(--accent)]' : 'from-slate-700/20 to-slate-800/20 text-[var(--text-dim)]'
+                          }`}>
+                            {user.username.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-white truncate">{user.username}</span>
+                              {isSelf && (
+                                <span className="bg-blue-500/10 text-[var(--accent)] px-2 py-0.5 rounded text-[0.6rem] font-bold border border-blue-500/20">YOU</span>
+                              )}
+                              <span className="bg-slate-500/10 text-[var(--text-dim)] px-2 py-0.5 rounded text-[0.6rem] font-bold border border-slate-500/20 font-mono font-semibold">
+                                USER
+                              </span>
+                            </div>
+                            <div className="text-[0.7rem] text-[var(--text-dim)] truncate mt-0.5">{user.email}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 border-t border-[var(--border)] pt-2.5 sm:pt-0 sm:border-0">
+                          <div className="text-left sm:text-right">
+                            <div className="text-[0.6rem] text-[var(--text-dim)] uppercase font-semibold">Registered</div>
+                            <div className="text-[0.7rem] font-mono text-white/80 mt-0.5">{formatDate(user.created_at)}</div>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => startEdit(user)}
+                              className="p-1.5 bg-blue-500/8 border border-blue-500/15 rounded-lg hover:bg-blue-500/20 text-[var(--accent)] transition-colors"
+                              title="Edit User"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              disabled={isSelf}
+                              onClick={() => handleDeleteUser(user.id, user.username)}
+                              className={`p-1.5 border rounded-lg transition-colors ${
+                                isSelf
+                                  ? 'opacity-20 cursor-not-allowed border-[var(--border)] text-[var(--text-dim)]'
+                                  : 'bg-red-500/8 border-red-500/15 hover:bg-red-500/20 text-[var(--danger)]'
+                              }`}
+                              title={isSelf ? 'You cannot delete yourself' : 'Delete User'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {users.length === 0 && !loading && (
+                    <div className="text-center py-8 text-sm text-[var(--text-dim)]">No users found.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </SideCard>
+        )}
+      </div>
+    </div>
+  );
+}
+

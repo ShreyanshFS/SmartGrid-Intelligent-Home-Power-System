@@ -10,7 +10,8 @@ import jwt from 'jsonwebtoken';
 import {
   initDb,
   createUser, findUserByEmail, findUserById,
-  upsertState, loadState
+  upsertState, loadState,
+  getAllUsers, updateUser, deleteUser
 } from './db/database.ts';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -166,6 +167,139 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
     return;
   }
   res.json({ user });
+});
+
+// ── User management routes ─────────────────────────────────────────────────────
+
+app.get('/api/users', authenticateToken, (req, res) => {
+  try {
+    const users = getAllUsers();
+    res.json({ users });
+  } catch (err) {
+    console.error('Get users error:', err);
+    res.status(500).json({ error: 'Failed to retrieve users.' });
+  }
+});
+
+app.post('/api/users', authenticateToken, async (req, res) => {
+  const { username, email, password } = req.body;
+  if (!username || !email || !password) {
+    res.status(400).json({ error: 'Username, email, and password are required.' });
+    return;
+  }
+  if (username.length < 3) {
+    res.status(400).json({ error: 'Username must be at least 3 characters.' });
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: 'Invalid email address.' });
+    return;
+  }
+  if (password.length < 6) {
+    res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    return;
+  }
+
+  try {
+    const existing = findUserByEmail(email);
+    if (existing) {
+      res.status(409).json({ error: 'An account with this email already exists.' });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const userId = createUser(username, email, passwordHash);
+
+    res.status(201).json({
+      user: { id: userId, username, email }
+    });
+  } catch (err: any) {
+    if (err.message?.includes('UNIQUE constraint')) {
+      res.status(409).json({ error: 'Username or email already taken.' });
+      return;
+    }
+    console.error('Create user error:', err);
+    res.status(500).json({ error: 'Failed to create user.' });
+  }
+});
+
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
+  const id = Number(req.params.id);
+  const { username, email, password } = req.body;
+
+  if (!username || !email) {
+    res.status(400).json({ error: 'Username and email are required.' });
+    return;
+  }
+  if (username.length < 3) {
+    res.status(400).json({ error: 'Username must be at least 3 characters.' });
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: 'Invalid email address.' });
+    return;
+  }
+  if (password && password.length < 6) {
+    res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    return;
+  }
+
+  try {
+    const user = findUserById(id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found.' });
+      return;
+    }
+
+    if (email !== (user as any).email) {
+      const existing = findUserByEmail(email);
+      if (existing && (existing as any).id !== id) {
+        res.status(409).json({ error: 'An account with this email already exists.' });
+        return;
+      }
+    }
+
+    let passwordHash: string | undefined;
+    if (password) {
+      passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    }
+
+    updateUser(id, username, email, passwordHash);
+    res.json({
+      user: { id, username, email }
+    });
+  } catch (err: any) {
+    if (err.message?.includes('UNIQUE constraint')) {
+      res.status(409).json({ error: 'Username or email already taken.' });
+      return;
+    }
+    console.error('Update user error:', err);
+    res.status(500).json({ error: 'Failed to update user.' });
+  }
+});
+
+app.delete('/api/users/:id', authenticateToken, (req, res) => {
+  const id = Number(req.params.id);
+  const currentUserId = (req as any).user.userId;
+
+  if (id === currentUserId) {
+    res.status(400).json({ error: 'You cannot delete your own logged-in user account.' });
+    return;
+  }
+
+  try {
+    const user = findUserById(id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found.' });
+      return;
+    }
+
+    deleteUser(id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Delete user error:', err);
+    res.status(500).json({ error: 'Failed to delete user.' });
+  }
 });
 
 // ── State persistence routes ───────────────────────────────────────────────────
