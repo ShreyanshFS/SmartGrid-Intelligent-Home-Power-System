@@ -63,11 +63,13 @@ export function createUser(username: string, email: string, passwordHash: string
     `INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)`,
     [username, email, passwordHash]
   );
-  persist();
-
-  // Return the last inserted row id
+  
+  // Return the last inserted row id before persisting (since db.export() resets row id)
   const result = db.exec(`SELECT last_insert_rowid() as id`);
-  return result[0]?.values[0]?.[0] as number;
+  const userId = result[0]?.values[0]?.[0] as number;
+  
+  persist();
+  return userId;
 }
 
 export function findUserByEmail(email: string) {
